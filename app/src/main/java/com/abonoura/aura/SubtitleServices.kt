@@ -36,7 +36,7 @@ data class OnlineSubtitle(
     val downloadUrl: String,
 )
 
-data class SubtitleResults(val subtitles: List<OnlineSubtitle>, val warnings: List<String>)
+data class SubtitleResults(val subtitles: List<OnlineSubtitle>, val warnings: List<String>, val diagnostics: List<String> = emptyList())
 
 /** Only the displayed title is used for search, never the video or its full device path. */
 fun subtitleVideoHint(title: String): SubtitleVideoHint {
@@ -92,10 +92,10 @@ class SubtitleSearchClient internal constructor(private val addons: List<Subtitl
         buildList {
             for (i in 0 until metas.length()) {
                 val meta = metas.optJSONObject(i) ?: continue
-                val id = meta.optString("imdb_id").ifBlank { meta.optString("id") }
-                val name = meta.optString("name")
+                val id = meta.subtitleString("imdb_id").takeIf { it.matches(Regex("tt\\d+")) } ?: meta.subtitleString("id")
+                val name = meta.subtitleString("name")
                 if (id.matches(Regex("tt\\d+")) && name.isNotBlank()) {
-                    add(SubtitleMedia(id, name, kind, meta.optString("releaseInfo").ifBlank { meta.optString("year") }))
+                    add(SubtitleMedia(id, name, kind, meta.subtitleString("releaseInfo").ifBlank { meta.subtitleString("year") }))
                 }
             }
         }.distinctBy { it.id }.take(40)
@@ -112,16 +112,16 @@ class SubtitleSearchClient internal constructor(private val addons: List<Subtitl
                         buildList {
                             for (i in 0 until subtitles.length()) {
                                 val sub = subtitles.optJSONObject(i) ?: continue
-                                val lang = sub.optString("lang").lowercase()
+                                val lang = sub.subtitleString("lang").lowercase()
                                 if (lang !in language.addonCodes) continue
-                                val url = sub.optString("url").replace(Regex("^http://", RegexOption.IGNORE_CASE), "https://")
+                                val url = sub.subtitleString("url").replace(Regex("^http://", RegexOption.IGNORE_CASE), "https://")
                                 if (runCatching { subtitleHttpsUrl(url) }.isFailure) continue
-                                val label = sub.optString("releaseName").ifBlank { sub.optString("fileName") }.ifBlank { sub.optString("label") }.ifBlank { "ترجمة ${i + 1}" }
+                                val label = sub.subtitleString("releaseName").ifBlank { sub.subtitleString("fileName") }.ifBlank { sub.subtitleString("label") }.ifBlank { "ترجمة ${i + 1}" }
                                 add(OnlineSubtitle(
                                     id = "${addon.id}:${media.id}:$season:$episode:${subtitleDigest(url)}",
                                     release = label,
                                     language = language.code,
-                                    source = when (val source = sub.optString("source").ifBlank { addon.name }) {
+                                    source = when (val source = sub.subtitleString("source").ifBlank { addon.name }) {
                                         "subdl" -> "SubDL"
                                         "subsource" -> "SubSource"
                                         "opensubtitles" -> "OpenSubtitles"
@@ -136,13 +136,15 @@ class SubtitleSearchClient internal constructor(private val addons: List<Subtitl
                     SubtitleResults(items, emptyList())
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (_: Exception) {
+                } catch (failure: Exception) {
                     // A slow or broken provider must not discard working providers' results.
-                    SubtitleResults(emptyList(), listOf("تعذّر الوصول إلى ${addon.name}. يمكنك إعادة البحث لاحقًا."))
+                    val diagnostic = (failure as? SubtitleServiceException)?.httpStatus?.let { "HTTP_$it" }
+                        ?: failure.javaClass.simpleName
+                    SubtitleResults(emptyList(), listOf("تعذّر الوصول إلى ${addon.name}. يمكنك إعادة البحث لاحقًا."), listOf("${addon.name}: $diagnostic"))
                 }
             }
         }.awaitAll()
-        SubtitleResults(responses.flatMap { it.subtitles }.distinctBy { it.downloadUrl }, responses.flatMap { it.warnings })
+        SubtitleResults(responses.flatMap { it.subtitles }.distinctBy { it.downloadUrl }, responses.flatMap { it.warnings }, responses.flatMap { it.diagnostics })
     }
 
     suspend fun download(subtitle: OnlineSubtitle, directory: File): File = runInterruptible(Dispatchers.IO) {
@@ -186,3 +188,5 @@ internal fun subtitleFormat(text: String): String? {
 
 private fun subtitleDigest(value: String): String = MessageDigest.getInstance("SHA-256")
     .digest(value.toByteArray(Charsets.UTF_8)).take(16).joinToString("") { "%02x".format(it) }
+
+private fun org.json.JSONObject.subtitleString(key: String): String = if (isNull(key)) "" else optString(key)

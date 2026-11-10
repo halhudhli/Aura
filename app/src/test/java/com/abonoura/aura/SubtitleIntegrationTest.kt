@@ -23,7 +23,7 @@ class SubtitleIntegrationTest {
         val title = try { client.titles("The Matrix", SubtitleMediaKind.Movie).first { it.id == "tt0133093" } }
         catch (_: Exception) { throw AssertionError("The public title catalog could not resolve The Matrix") }
         val results = client.subtitles(title, subtitleLanguages.first { it.code == "ar" }, 1, 1, "The.Matrix.1999.1080p.mkv")
-        assertTrue(results.warnings.joinToString(" "), results.warnings.isEmpty())
+        assertTrue(results.diagnostics.joinToString(" "), results.warnings.isEmpty())
         assertTrue("No Arabic subtitles returned; check addon language configuration", results.subtitles.isNotEmpty())
     }
 }

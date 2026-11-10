@@ -9,7 +9,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
-class SubtitleServiceException(message: String) : IOException(message)
+class SubtitleServiceException(message: String, val httpStatus: Int? = null) : IOException(message)
 
 internal const val MAX_SUBTITLE_BYTES = 8 * 1024 * 1024
 internal const val MAX_JSON_BYTES = 2 * 1024 * 1024
@@ -19,10 +19,10 @@ internal fun invalidSubtitleResponse() = SubtitleServiceException("تعذّر ق
 internal fun checkSubtitleStatus(status: Int) {
     when (status) {
         in 200..299 -> Unit
-        401, 403 -> throw SubtitleServiceException("تعذّر الوصول إلى مصدر الترجمة. تحقق من إعداد الإضافة أو حاول لاحقًا.")
-        406 -> throw SubtitleServiceException("بلغت حد التحميل لدى مصدر الترجمة. جرّب لاحقًا.")
-        429 -> throw SubtitleServiceException("طلبات كثيرة إلى مصدر الترجمة. انتظر قليلًا ثم أعد المحاولة.")
-        else -> throw SubtitleServiceException("مصدر الترجمة غير متاح الآن. حاول مرة أخرى لاحقًا.")
+        401, 403 -> throw SubtitleServiceException("تعذّر الوصول إلى مصدر الترجمة. تحقق من إعداد الإضافة أو حاول لاحقًا.", status)
+        406 -> throw SubtitleServiceException("بلغت حد التحميل لدى مصدر الترجمة. جرّب لاحقًا.", status)
+        429 -> throw SubtitleServiceException("طلبات كثيرة إلى مصدر الترجمة. انتظر قليلًا ثم أعد المحاولة.", status)
+        else -> throw SubtitleServiceException("مصدر الترجمة غير متاح الآن. حاول مرة أخرى لاحقًا.", status)
     }
 }
 
@@ -51,7 +51,7 @@ internal fun interface SubtitleTransport {
 }
 
 internal fun SubtitleTransport.json(url: String): JSONObject {
-    val response = execute(SubtitleRequest(url))
+    val response = execute(SubtitleRequest(url, followRedirects = true))
     checkSubtitleStatus(response.status)
     if (response.body.size > MAX_JSON_BYTES) throw invalidSubtitleResponse()
     return try {

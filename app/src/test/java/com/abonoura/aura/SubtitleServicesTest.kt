@@ -54,7 +54,7 @@ class SubtitleServicesTest {
     }
 
     @Test fun titleSearchEncodesUnicodeAndFiltersUnsupportedIds() = runBlocking {
-        val transport = fake("""{"metas":[{"id":"tt0133093","name":"The Matrix","releaseInfo":"1999"},{"id":"tmdb:1","name":"Other"}]}""")
+        val transport = fake("""{"metas":[{"id":"tt0133093","imdb_id":null,"name":"The Matrix","releaseInfo":"1999"},{"id":"tmdb:1","name":"Other"}]}""")
         val titles = client(transport).titles("فيلم & Movie", SubtitleMediaKind.Movie)
         assertEquals(listOf(movie), titles)
         assertTrue(transport.requests.single().url.contains("search=%D9%81%D9%8A%D9%84%D9%85%20%26%20Movie.json"))

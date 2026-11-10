@@ -228,7 +228,7 @@ fun OnlineSubtitlesDialog(videoTitle: String, onDismiss: () -> Unit, onDownloade
                                     HorizontalDivider(Modifier.padding(top = 12.dp))
                                 }
                             }
-                            if (searched && selected != null && results.isEmpty()) {
+                            if (searched && selected != null && results.isEmpty() && warnings.isEmpty()) {
                                 item { Text("لم نعثر على ترجمة بهذه اللغة. جرّب لغة أخرى وتأكد أنها مفعّلة في إعداد الإضافة.") }
                             }
                             if (results.isNotEmpty()) {
@@ -245,6 +245,7 @@ fun OnlineSubtitlesDialog(videoTitle: String, onDismiss: () -> Unit, onDownloade
                                 Column {
                                     Row(
                                         Modifier.fillMaxWidth().clickable(enabled = downloading == null && !searching) {
+                                            if (downloading != null) return@clickable
                                             downloading = subtitle.id; error = null
                                             scope.launch {
                                                 try {
