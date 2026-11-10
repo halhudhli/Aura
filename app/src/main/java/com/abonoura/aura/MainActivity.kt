@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -49,6 +50,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         Prefs.init(this)
+        SubtitleAppearanceStore.init(this)
         handleIntent(intent)
         setContent {
             // Aura's own screens are Arabic, right to left.
@@ -129,13 +131,13 @@ class MainActivity : ComponentActivity() {
 
         val request = playing
         when {
-            request != null -> PlayerScreen(
+            request != null -> key(request.source) { PlayerScreen(
                 request = request,
                 inPip = inPip,
                 onEnterPip = { enterPip() },
                 onPlayingChanged = { videoIsPlaying = it },
                 onClose = { playing = null },
-            )
+            ) }
             !granted -> PermissionScreen { askPermission.launch(permission) }
             settings -> {
                 BackHandler { settings = false }

@@ -2,9 +2,11 @@ package com.abonoura.aura
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
 import android.net.Uri
+import android.os.SystemClock
 import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
@@ -49,6 +51,7 @@ import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.ScreenRotation
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Subtitles
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
@@ -66,6 +69,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -83,10 +87,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import `is`.xyz.mpv.Utils
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -94,7 +102,7 @@ import kotlin.math.roundToInt
 /** What to play: a file path or a link, with the name shown in the player. */
 data class PlayRequest(val source: String, val title: String)
 
-private enum class Panel { None, Subtitles, Audio, Speed }
+private enum class Panel { None, Subtitles, Audio, Speed, Appearance, Tools, Effects, Chapters, Bookmarks, Info }
 
 private enum class DragKind { None, Seek, Brightness, Volume }
 
@@ -103,6 +111,7 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
     val context = LocalContext.current
     val activity = context as? Activity
     val colors = LocalAura.current
+    val scope = rememberCoroutineScope()
     var view by remember { mutableStateOf<AuraMpvView?>(null) }
     var state by remember { mutableStateOf(PlaybackState()) }
     var controls by remember { mutableStateOf(true) }
@@ -119,10 +128,50 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
     var landscape by remember { mutableStateOf(true) }
     var seekPreviewMs by remember { mutableLongStateOf(-1L) }
     var holdBoost by remember { mutableStateOf(false) }
+    var syncByEar by remember { mutableStateOf(false) }
+    var earCapture by remember { mutableStateOf(EarSyncCapture()) }
+    var syncGeneration by remember { mutableIntStateOf(0) }
+    var visualPath by remember { mutableStateOf<String?>(null) }
+    var visualPosition by remember { mutableStateOf<Long?>(null) }
+    var resumeAfterVisual by remember { mutableStateOf(false) }
+    var effects by remember { mutableStateOf(PlayerEffects()) }
+    var repeatStart by remember { mutableStateOf<Long?>(null) }
+    var repeatEnd by remember { mutableStateOf<Long?>(null) }
+    var sleepDeadline by remember { mutableStateOf<Long?>(null) }
+    var sleepRemaining by remember { mutableStateOf<Long?>(null) }
+    var bookmarks by remember(request.source) { mutableStateOf(PlaybackBookmarks.load(context, request.source)) }
     val latestState by rememberUpdatedState(state)
 
     fun flash(text: String) { message = text }
     fun touch() { activity_tick++ }
+    fun resetCapture() { syncGeneration++; earCapture = EarSyncCapture() }
+    fun changeSubtitleDelay(value: Int) {
+        resetCapture()
+        subtitleDelay = value.coerceIn(MIN_SUBTITLE_DELAY_MS, MAX_SUBTITLE_DELAY_MS)
+        view?.setSubtitleDelay(subtitleDelay)
+    }
+    fun seekTo(position: Long) { resetCapture(); view?.seekTo(position) }
+    fun seekBy(seconds: Int) { resetCapture(); view?.seekBy(seconds) }
+    fun captureEar(heard: Boolean) {
+        if (latestState.paused || latestState.subtitleTracks.none { it.selected }) return
+        val generation = syncGeneration
+        view?.capturePosition { position ->
+            if (!syncByEar || generation != syncGeneration) return@capturePosition
+            val capture = if (heard) earCapture.captureHeard(position) else earCapture.captureSaw(position)
+            val correction = capture.resolveDelay(subtitleDelay)
+            if (correction == null) earCapture = capture else {
+                changeSubtitleDelay(correction)
+                flash("تم ضبط توقيت الترجمة")
+            }
+        }
+    }
+    fun dismissVisual() {
+        resetCapture()
+        visualPath = null
+        visualPosition = null
+        if (resumeAfterVisual) view?.setPaused(false)
+        resumeAfterVisual = false
+    }
 
     // Full screen, landscape, screen kept on — and everything restored on the way out.
     DisposableEffect(landscape) {
@@ -161,6 +210,7 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
 
     BackHandler {
         when {
+            syncByEar -> { syncByEar = false; resetCapture() }
             panel != Panel.None -> panel = Panel.None
             locked -> flash("الشاشة مقفلة · يُضغط على القفل للفتح")
             else -> close()
@@ -172,15 +222,36 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
         val v = view ?: return@LaunchedEffect
         var ticks = 0
         while (true) {
-            v.readState { fresh -> state = fresh }
+            v.readState { fresh ->
+                val jump = fresh.positionMs - state.positionMs
+                if (jump < -250L || jump > maxOf(2_000L, (state.speed * 1_000).toLong())) resetCapture()
+                state = fresh
+            }
             ticks++
             if (ticks % 20 == 0) saveProgress()
             delay(250L)
         }
     }
     LaunchedEffect(state.paused) { onPlayingChanged(!state.paused) }
-    LaunchedEffect(controls, activity_tick, state.paused, panel, scrubbing, onlineSubtitles) {
-        if (!controls || state.paused || panel != Panel.None || scrubbing || onlineSubtitles) return@LaunchedEffect
+    LaunchedEffect(state.paused, state.subtitleTracks.firstOrNull { it.selected }?.id, state.audioTracks.firstOrNull { it.selected }?.id, audioDelay) { resetCapture() }
+    LaunchedEffect(view, SubtitleAppearanceStore.value) { view?.setSubtitleAppearance(SubtitleAppearanceStore.value) }
+    LaunchedEffect(view, effects) { view?.setEffects(effects) }
+    LaunchedEffect(sleepDeadline) {
+        val deadline = sleepDeadline ?: run { sleepRemaining = null; return@LaunchedEffect }
+        while (true) {
+            val remaining = (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+            sleepRemaining = remaining
+            if (remaining == 0L) {
+                view?.setPaused(true)
+                sleepDeadline = null
+                flash("انتهى مؤقت الإيقاف")
+                break
+            }
+            delay(minOf(1000L, remaining))
+        }
+    }
+    LaunchedEffect(controls, activity_tick, state.paused, panel, scrubbing, onlineSubtitles, syncByEar, visualPath) {
+        if (!controls || state.paused || panel != Panel.None || scrubbing || onlineSubtitles || syncByEar || visualPath != null) return@LaunchedEffect
         delay(3_500L)
         controls = false
     }
@@ -192,12 +263,13 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
 
     val subtitlePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
-        val path = runCatching { importSubtitle(context, uri) }.getOrNull()
-        if (path != null) {
-            view?.addSubtitleFile(path)
-            flash("تم تحميل ملف الترجمة")
-        } else {
-            flash("تعذّر فتح ملف الترجمة")
+        scope.launch {
+            val path = withContext(Dispatchers.IO) { runCatching { importSubtitle(context, uri) }.getOrNull() }
+            if (path != null) {
+                view?.addSubtitleFile(path)
+                changeSubtitleDelay(0)
+                flash("تم تحميل ملف الترجمة")
+            } else flash("تعذّر فتح ملف الترجمة")
         }
     }
 
@@ -237,8 +309,8 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
                                 if (locked) return@detectTapGestures
                                 val third = size.width / 3f
                                 when {
-                                    offset.x < third -> { view?.seekBy(-Prefs.seekSeconds); flash("−${Prefs.seekSeconds} ث") }
-                                    offset.x > third * 2f -> { view?.seekBy(Prefs.seekSeconds); flash("+${Prefs.seekSeconds} ث") }
+                                    offset.x < third -> { seekBy(-Prefs.seekSeconds); flash("−${Prefs.seekSeconds} ث") }
+                                    offset.x > third * 2f -> { seekBy(Prefs.seekSeconds); flash("+${Prefs.seekSeconds} ث") }
                                     else -> view?.setPaused(!latestState.paused)
                                 }
                             },
@@ -267,7 +339,7 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
                         detectDragGestures(
                             onDragStart = { kind = DragKind.None; seekOffsetMs = 0f; startPosition = latestState.positionMs },
                             onDragEnd = {
-                                if (kind == DragKind.Seek && seekPreviewMs >= 0L) view?.seekTo(seekPreviewMs)
+                                if (kind == DragKind.Seek && seekPreviewMs >= 0L) seekTo(seekPreviewMs)
                                 seekPreviewMs = -1L
                                 kind = DragKind.None
                             },
@@ -362,11 +434,11 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
                         }
 
                         Row(Modifier.align(Alignment.Center), horizontalArrangement = Arrangement.spacedBy(36.dp), verticalAlignment = Alignment.CenterVertically) {
-                            RoundButton(Icons.Rounded.Replay10, "رجوع ${Prefs.seekSeconds} ثوان", 52) { view?.seekBy(-Prefs.seekSeconds); touch() }
+                            RoundButton(Icons.Rounded.Replay10, "رجوع ${Prefs.seekSeconds} ثوان", 52) { seekBy(-Prefs.seekSeconds); touch() }
                             RoundButton(if (state.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, if (state.paused) "تشغيل" else "إيقاف مؤقت", 68) {
                                 view?.setPaused(!state.paused); touch()
                             }
-                            RoundButton(Icons.Rounded.Forward10, "تقديم ${Prefs.seekSeconds} ثوان", 52) { view?.seekBy(Prefs.seekSeconds); touch() }
+                            RoundButton(Icons.Rounded.Forward10, "تقديم ${Prefs.seekSeconds} ثوان", 52) { seekBy(Prefs.seekSeconds); touch() }
                         }
 
                         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
@@ -374,7 +446,7 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
                             Slider(
                                 value = if (scrubbing) scrubValue else state.positionMs.toFloat().coerceIn(0f, duration),
                                 onValueChange = { scrubbing = true; scrubValue = it; touch() },
-                                onValueChangeFinished = { view?.seekTo(scrubValue.toLong()); scrubbing = false },
+                                onValueChangeFinished = { seekTo(scrubValue.toLong()); scrubbing = false },
                                 valueRange = 0f..duration,
                                 colors = SliderDefaults.colors(
                                     thumbColor = Color.White,
@@ -400,6 +472,7 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
                                     touch()
                                 }
                                 FlatButton(Icons.Rounded.ScreenRotation, "تدوير") { landscape = !landscape; touch() }
+                                FlatButton(Icons.Rounded.MoreVert, "أدوات المشغّل") { panel = Panel.Tools }
                             }
                         }
                     }
@@ -408,12 +481,32 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
 
             if (panel != Panel.None) {
                 SidePanel(
-                    title = when (panel) { Panel.Subtitles -> "الترجمة"; Panel.Audio -> "الصوت"; else -> "السرعة" },
+                    title = when (panel) {
+                        Panel.Subtitles -> "الترجمة"; Panel.Audio -> "الصوت"; Panel.Speed -> "السرعة"
+                        Panel.Appearance -> "شكل الترجمة"; Panel.Tools -> "أدوات المشغّل"
+                        Panel.Effects -> "الصورة والصوت"; Panel.Chapters -> "الفصول"
+                        Panel.Bookmarks -> "العلامات المحفوظة"; else -> "معلومات التشغيل"
+                    },
                     onClose = { panel = Panel.None },
                 ) {
                     when (panel) {
                         Panel.Subtitles -> {
                             Choice("البحث عن ترجمة عبر الإنترنت…", false) { panel = Panel.None; onlineSubtitles = true }
+                            Choice("المزامنة بالسمع والرؤية…", false) {
+                                if (state.subtitleTracks.none { it.selected }) flash("حدد ترجمة أولًا")
+                                else { resetCapture(); panel = Panel.None; syncByEar = true }
+                            }
+                            Choice("المزامنة باختيار جملة…", false) {
+                                val path = state.subtitleTracks.firstOrNull { it.selected }?.externalPath
+                                if (path == null) flash("اختر ترجمة من ملف أو من البحث أولًا")
+                                else {
+                                    resetCapture(); syncByEar = false; panel = Panel.None
+                                    visualPosition = null
+                                    resumeAfterVisual = !state.paused
+                                    visualPath = if (path.startsWith("file://")) Uri.parse(path).path else path
+                                }
+                            }
+                            Choice("شكل الترجمة…", false) { panel = Panel.Appearance }
                             Choice("بدون ترجمة", state.subtitleTracks.none { it.selected }) { view?.selectSubtitle(null) }
                             state.subtitleTracks.forEach { track -> Choice(track.label, track.selected) { view?.selectSubtitle(track.id) } }
                             Choice("ترجمة من ملف…", false) { subtitlePicker.launch("*/*") }
@@ -421,8 +514,9 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
                                 onMinus = { Prefs.putSubScale(Prefs.subtitleScale - 0.1f); view?.setSubtitleScale(Prefs.subtitleScale) },
                                 onPlus = { Prefs.putSubScale(Prefs.subtitleScale + 0.1f); view?.setSubtitleScale(Prefs.subtitleScale) })
                             Stepper("توقيت الترجمة", delayLabel(subtitleDelay),
-                                onMinus = { subtitleDelay -= 100; view?.setSubtitleDelay(subtitleDelay) },
-                                onPlus = { subtitleDelay += 100; view?.setSubtitleDelay(subtitleDelay) })
+                                onMinus = { changeSubtitleDelay(subtitleDelay - 100) },
+                                onPlus = { changeSubtitleDelay(subtitleDelay + 100) })
+                            Choice("إعادة توقيت الترجمة إلى الصفر", false) { changeSubtitleDelay(0) }
                         }
                         Panel.Audio -> {
                             state.audioTracks.forEach { track -> Choice(track.label, track.selected) { view?.selectAudio(track.id) } }
@@ -430,12 +524,108 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
                                 onMinus = { audioDelay -= 50; view?.setAudioDelay(audioDelay) },
                                 onPlus = { audioDelay += 50; view?.setAudioDelay(audioDelay) })
                         }
-                        else -> listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f).forEach { speed ->
+                        Panel.Speed -> listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f).forEach { speed ->
                             Choice("${speed}×", abs(state.speed - speed) < 0.01f) { view?.setSpeed(speed) }
                         }
+                        Panel.Appearance -> SubtitleAppearancePanel(
+                            style = SubtitleAppearanceStore.value,
+                            onChange = { SubtitleAppearanceStore.update(it) },
+                            onReset = { SubtitleAppearanceStore.reset() },
+                        )
+                        Panel.Effects -> PlayerEffectsPanel(effects, { effects = it }, { effects = PlayerEffects() })
+                        Panel.Tools -> {
+                            Choice("شكل الترجمة", false) { panel = Panel.Appearance }
+                            Choice("الصورة ووضوح الحوار والصوت الليلي", false) { panel = Panel.Effects }
+                            Choice("الفصول (${state.chapters.size})", false) { panel = Panel.Chapters }
+                            Choice("العلامات المحفوظة (${bookmarks.size})", false) { panel = Panel.Bookmarks }
+                            Choice("إضافة علامة عند الموضع الحالي", false) {
+                                view?.capturePosition { position ->
+                                    val previous = bookmarks
+                                    bookmarks = PlaybackBookmarks.add(context, request.source, position)
+                                    flash(if (previous == bookmarks) "الموضع محفوظ أو بلغت حد العلامات" else "تم حفظ العلامة")
+                                }
+                            }
+                            Choice("بداية التكرار A: ${repeatStart?.let { formatDuration(it) } ?: "غير محددة"}", repeatStart != null) {
+                                resetCapture()
+                                view?.capturePosition { position -> repeatStart = position; repeatEnd = null; view?.setRepeat(null, null) }
+                            }
+                            Choice("نهاية التكرار B: ${repeatEnd?.let { formatDuration(it) } ?: "غير محددة"}", repeatEnd != null) {
+                                view?.capturePosition { position ->
+                                    val start = repeatStart
+                                    if (start == null || position - start < 500L) flash("حدد بداية A ثم نهاية بعدها بنصف ثانية على الأقل")
+                                    else { resetCapture(); repeatEnd = position; view?.setRepeat(start, position); flash("تم تفعيل تكرار المقطع") }
+                                }
+                            }
+                            if (repeatStart != null) Choice("إلغاء تكرار المقطع", false) { repeatStart = null; repeatEnd = null; resetCapture(); view?.setRepeat(null, null) }
+                            Text("مؤقت الإيقاف${sleepRemaining?.let { " · ${formatDuration(it)}" } ?: ""}", color = Color.White, modifier = Modifier.padding(top = 10.dp))
+                            listOf(15, 30, 60, 90).forEach { minutes ->
+                                Choice("بعد $minutes دقيقة", false) { sleepDeadline = SystemClock.elapsedRealtime() + minutes * 60_000L; flash("تم ضبط مؤقت الإيقاف") }
+                            }
+                            if (sleepDeadline != null) Choice("إلغاء المؤقت", false) { sleepDeadline = null }
+                            Choice("لقطة للشاشة ومشاركتها", false) {
+                                panel = Panel.None
+                                val target = File(context.cacheDir, "screenshots").apply { mkdirs() }
+                                view?.screenshot(File(target, "Aura-${System.currentTimeMillis()}.png")) { file ->
+                                    if (file == null) flash("تعذّر التقاط صورة من هذا الفيديو")
+                                    else runCatching {
+                                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+                                        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                                            type = "image/png"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }, "لقطة من Aura"))
+                                    }.onFailure { flash("تعذّر فتح المشاركة") }
+                                }
+                            }
+                            Choice("معلومات التشغيل", false) { panel = Panel.Info }
+                        }
+                        Panel.Chapters -> {
+                            if (state.chapters.isEmpty()) Text("لا يحتوي هذا الفيديو على فصول متاحة.", color = Color.White)
+                            state.chapters.forEach { chapter -> Choice("${formatDuration(chapter.positionMs)} · ${chapter.title}", false) { seekTo(chapter.positionMs); panel = Panel.None } }
+                        }
+                        Panel.Bookmarks -> {
+                            if (bookmarks.isEmpty()) Text("أضف علامة من أدوات المشغّل للعودة إلى المشهد لاحقًا.", color = Color.White)
+                            bookmarks.forEach { position -> Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.weight(1f)) { Choice(formatDuration(position), false) { seekTo(position); panel = Panel.None } }
+                                androidx.compose.material3.TextButton(onClick = { bookmarks = PlaybackBookmarks.remove(context, request.source, position) }) { Text("حذف") }
+                            } }
+                        }
+                        Panel.Info -> {
+                            listOf(
+                                request.title,
+                                "الدقة: ${state.videoWidth} × ${state.videoHeight}",
+                                "الفيديو: ${state.videoCodec.ifBlank { "غير متاح" }}",
+                                "الصوت: ${state.audioCodec.ifBlank { "غير متاح" }}",
+                                "الإطارات: ${if (state.fps > 0) String.format(java.util.Locale.US, "%.2f", state.fps) else "غير متاح"}",
+                                "المدة: ${formatDuration(state.durationMs)}",
+                                "مسارات الصوت: ${state.audioTracks.size} · الترجمة: ${state.subtitleTracks.size}",
+                            ).forEach { Text(it, color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(vertical = 6.dp)) }
+                        }
+                        Panel.None -> Unit
                     }
                 }
             }
+
+            if (syncByEar) SubtitleSyncCard(
+                subtitleDelay, earCapture, { captureEar(true) }, { captureEar(false) },
+                onReset = { resetCapture() }, onClose = { syncByEar = false; resetCapture() },
+                captureEnabled = !state.paused && state.subtitleTracks.any { it.selected },
+                modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
+            )
+
+            visualPath?.let { path -> VisualSubtitleSyncDialog(
+                path, visualPosition, state.paused,
+                onCapture = {
+                    val generation = syncGeneration
+                    view?.capturePosition { position ->
+                        if (visualPath == path && syncGeneration == generation) {
+                            visualPosition = position
+                            view?.setPaused(true)
+                        }
+                    }
+                },
+                onTogglePlayback = { view?.setPaused(!state.paused) },
+                onChoose = { cue -> visualPosition?.let { changeSubtitleDelay(subtitleDelayForCue(it, cue)); dismissVisual(); flash("تم ضبط التوقيت على الجملة المحددة") } },
+                onDismiss = { dismissVisual() },
+            ) }
 
             if (onlineSubtitles) {
                 key(request.source) {
@@ -445,8 +635,7 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
                         onDownloaded = { file, subtitle ->
                             view?.let { player ->
                                 player.addSubtitleFile(file.path, subtitle.release, subtitle.language)
-                                subtitleDelay = 0
-                                player.setSubtitleDelay(0)
+                                changeSubtitleDelay(0)
                                 flash("تم تحميل الترجمة وتشغيلها")
                             }
                             onlineSubtitles = false
@@ -479,7 +668,7 @@ private fun installFonts(context: Context) {
 
 /** Reads the picked subtitle file in its real encoding and stores it as UTF-8 for the player. */
 private fun importSubtitle(context: Context, uri: Uri): String? {
-    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+    val bytes = context.contentResolver.openInputStream(uri)?.use { readLimited(it, MAX_SUBTITLE_BYTES) } ?: return null
     if (bytes.isEmpty() || bytes.size > 8 * 1024 * 1024) return null
     val text = SubtitleText.decode(bytes)
     val head = text.trimStart().take(200)

@@ -1,6 +1,8 @@
 package com.abonoura.aura
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import `is`.xyz.mpv.BaseMPVView
 import `is`.xyz.mpv.MPV
 import `is`.xyz.mpv.MPVNode
@@ -8,7 +10,8 @@ import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
-data class Track(val id: Int, val label: String, val selected: Boolean)
+data class Track(val id: Int, val label: String, val selected: Boolean, val externalPath: String? = null)
+data class Chapter(val title: String, val positionMs: Long)
 
 /** What the screen needs to know about playback, read from mpv a few times a second. */
 data class PlaybackState(
@@ -20,6 +23,12 @@ data class PlaybackState(
     val speed: Float = 1f,
     val audioTracks: List<Track> = emptyList(),
     val subtitleTracks: List<Track> = emptyList(),
+    val chapters: List<Chapter> = emptyList(),
+    val videoWidth: Int = 0,
+    val videoHeight: Int = 0,
+    val videoCodec: String = "",
+    val audioCodec: String = "",
+    val fps: Double = 0.0,
 )
 
 /**
@@ -31,6 +40,7 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
         Thread(runnable, "AuraMpv").apply { isDaemon = true }
     }
     private val released = AtomicBoolean(false)
+    private val main = Handler(Looper.getMainLooper())
 
     override fun initOptions() {
         setVo("gpu")
@@ -92,6 +102,54 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
 
     fun setSubtitleDelay(ms: Int) = post { setPropertyDouble("sub-delay", ms / 1000.0) }
 
+    /** Captures the engine timestamp at the tap, without the UI polling interval's rounding. */
+    fun capturePosition(onPosition: (Long) -> Unit) = post {
+        val position = ((getPropertyDouble("time-pos") ?: 0.0) * 1000).toLong().coerceAtLeast(0L)
+        main.post { if (!released.get()) onPosition(position) }
+    }
+
+    fun setSubtitleAppearance(style: SubtitleAppearance) = post { applyAppearance(style) }
+
+    private fun MPV.applyAppearance(style: SubtitleAppearance) {
+        val value = style.normalized()
+        setPropertyString("sub-font", value.font.mpvName)
+        setPropertyBoolean("sub-bold", value.bold)
+        setPropertyString("sub-color", value.mpvTextColor)
+        setPropertyDouble("sub-border-size", if (value.outlineEnabled) 2.0 else 0.0)
+        setPropertyString("sub-border-color", value.mpvOutlineColor)
+        setPropertyDouble("sub-shadow-offset", if (value.shadowEnabled) value.shadowStrength.toDouble() else 0.0)
+        setPropertyDouble("sub-pos", value.position.toDouble())
+        // Apply the chosen appearance to styled ASS tracks as well.
+        setPropertyString("sub-ass-override", "force")
+    }
+
+    fun setEffects(effects: PlayerEffects) = post {
+        val value = effects.normalized()
+        setPropertyDouble("brightness", value.brightness.toDouble())
+        setPropertyDouble("contrast", value.contrast.toDouble())
+        setPropertyDouble("saturation", value.saturation.toDouble())
+        setPropertyDouble("gamma", value.gamma.toDouble())
+        runCatching { command("af", "remove", "@aura_audio") }
+        value.audioMode.mpvFilter?.let { command("af", "add", "@aura_audio:$it") }
+    }
+
+    fun setRepeat(startMs: Long?, endMs: Long?) = post {
+        setPropertyString("ab-loop-b", "no")
+        setPropertyString("ab-loop-a", "no")
+        if (startMs != null && endMs != null && endMs > startMs) {
+            setPropertyDouble("ab-loop-a", startMs / 1000.0)
+            setPropertyDouble("ab-loop-b", endMs / 1000.0)
+        }
+    }
+
+    fun screenshot(file: File, onResult: (File?) -> Unit) = post {
+        val result = runCatching {
+            command("screenshot-to-file", file.path, "subtitles")
+            file.takeIf { it.isFile && it.length() > 0L }
+        }.getOrNull()
+        main.post { if (!released.get()) onResult(result) }
+    }
+
     fun setAudioDelay(ms: Int) = post { setPropertyDouble("audio-delay", ms / 1000.0) }
 
     /** 0 = fit, 1 = zoom (fills the screen, edges cropped), 2 = stretch. */
@@ -116,10 +174,14 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
                 val label = listOfNotNull(title, language?.uppercase(), codec?.uppercase().takeIf { title == null })
                     .joinToString(" · ")
                     .ifBlank { "${index + 1}" }
-                Track(id, label, node.flag("selected") ?: false)
+                Track(id, label, node.flag("selected") ?: false, node.text("external-filename"))
             }
-        onState(
-            PlaybackState(
+        val chapters = runCatching { getPropertyNode("chapter-list")?.asArray()?.toList() }.getOrNull().orEmpty()
+            .mapIndexedNotNull { index, node ->
+                val time = runCatching { node["time"]?.asDouble() }.getOrNull() ?: return@mapIndexedNotNull null
+                Chapter(node.text("title") ?: "الفصل ${index + 1}", (time * 1000).toLong().coerceAtLeast(0L))
+            }
+        val snapshot = PlaybackState(
                 positionMs = ((getPropertyDouble("time-pos") ?: 0.0) * 1000).toLong(),
                 durationMs = ((getPropertyDouble("duration") ?: 0.0) * 1000).toLong(),
                 paused = getPropertyBoolean("pause") ?: true,
@@ -128,8 +190,14 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
                 speed = (getPropertyDouble("speed") ?: 1.0).toFloat(),
                 audioTracks = tracks("audio"),
                 subtitleTracks = tracks("sub"),
-            ),
-        )
+                chapters = chapters,
+                videoWidth = (getPropertyDouble("width") ?: 0.0).toInt(),
+                videoHeight = (getPropertyDouble("height") ?: 0.0).toInt(),
+                videoCodec = getPropertyString("video-format").orEmpty(),
+                audioCodec = getPropertyString("audio-codec-name").orEmpty(),
+                fps = getPropertyDouble("estimated-vf-fps") ?: 0.0,
+            )
+        main.post { if (!released.get()) onState(snapshot) }
     }
 
     fun release() {
