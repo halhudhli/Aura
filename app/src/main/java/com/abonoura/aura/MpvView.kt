@@ -41,6 +41,7 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
     }
     private val released = AtomicBoolean(false)
     private val main = Handler(Looper.getMainLooper())
+    private var appliedAudioMode = AudioMode.Normal
 
     override fun initOptions() {
         setVo("gpu")
@@ -48,6 +49,7 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
         mpv.setOptionString("hwdec", if (Prefs.hardwareDecoding) "auto" else "no")
         mpv.setOptionString("msg-level", "all=warn")
         mpv.setOptionString("volume-max", "200")
+        mpv.setOptionString("screenshot-format", "png")
         // Subtitles: files that are not valid UTF-8 are read as Arabic Windows-1256, a subtitle
         // file next to the video is picked up by itself, and the bundled font covers Arabic and Latin.
         mpv.setOptionString("sub-codepage", "cp1256")
@@ -119,8 +121,8 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
         setPropertyString("sub-border-color", value.mpvOutlineColor)
         setPropertyDouble("sub-shadow-offset", if (value.shadowEnabled) value.shadowStrength.toDouble() else 0.0)
         setPropertyDouble("sub-pos", value.position.toDouble())
-        // Apply the chosen appearance to styled ASS tracks as well.
-        setPropertyString("sub-ass-override", "force")
+        // Keep authored ASS styling until the user customizes the appearance.
+        setPropertyString("sub-ass-override", if (value == SubtitleAppearance()) "scale" else "force")
     }
 
     fun setEffects(effects: PlayerEffects) = post {
@@ -129,8 +131,11 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
         setPropertyDouble("contrast", value.contrast.toDouble())
         setPropertyDouble("saturation", value.saturation.toDouble())
         setPropertyDouble("gamma", value.gamma.toDouble())
-        runCatching { command("af", "remove", "@aura_audio") }
-        value.audioMode.mpvFilter?.let { command("af", "add", "@aura_audio:$it") }
+        if (value.audioMode != appliedAudioMode) {
+            runCatching { command("af", "remove", "@aura_audio") }
+            value.audioMode.mpvFilter?.let { command("af", "add", "@aura_audio:$it") }
+            appliedAudioMode = value.audioMode
+        }
     }
 
     fun setRepeat(startMs: Long?, endMs: Long?) = post {
@@ -144,7 +149,7 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
 
     fun screenshot(file: File, onResult: (File?) -> Unit) = post {
         val result = runCatching {
-            command("screenshot-to-file", file.path, "subtitles")
+            command("sync", "screenshot-to-file", file.path, "subtitles")
             file.takeIf { it.isFile && it.length() > 0L }
         }.getOrNull()
         main.post { if (!released.get()) onResult(result) }

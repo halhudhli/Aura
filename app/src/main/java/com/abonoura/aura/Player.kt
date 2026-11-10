@@ -17,6 +17,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -141,6 +142,7 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
     var sleepRemaining by remember { mutableStateOf<Long?>(null) }
     var bookmarks by remember(request.source) { mutableStateOf(PlaybackBookmarks.load(context, request.source)) }
     val latestState by rememberUpdatedState(state)
+    val latestInPip by rememberUpdatedState(inPip)
 
     fun flash(text: String) { message = text }
     fun touch() { activity_tick++ }
@@ -153,10 +155,10 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
     fun seekTo(position: Long) { resetCapture(); view?.seekTo(position) }
     fun seekBy(seconds: Int) { resetCapture(); view?.seekBy(seconds) }
     fun captureEar(heard: Boolean) {
-        if (latestState.paused || latestState.subtitleTracks.none { it.selected }) return
+        if (latestState.paused || latestState.buffering || latestState.subtitleTracks.none { it.selected }) return
         val generation = syncGeneration
         view?.capturePosition { position ->
-            if (!syncByEar || generation != syncGeneration) return@capturePosition
+            if (!syncByEar || latestInPip || generation != syncGeneration) return@capturePosition
             val capture = if (heard) earCapture.captureHeard(position) else earCapture.captureSaw(position)
             val correction = capture.resolveDelay(subtitleDelay)
             if (correction == null) earCapture = capture else {
@@ -233,6 +235,9 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
         }
     }
     LaunchedEffect(state.paused) { onPlayingChanged(!state.paused) }
+    LaunchedEffect(inPip) {
+        if (inPip) { syncByEar = false; resetCapture(); visualPath = null; visualPosition = null }
+    }
     LaunchedEffect(state.paused, state.subtitleTracks.firstOrNull { it.selected }?.id, state.audioTracks.firstOrNull { it.selected }?.id, audioDelay) { resetCapture() }
     LaunchedEffect(view, SubtitleAppearanceStore.value) { view?.setSubtitleAppearance(SubtitleAppearanceStore.value) }
     LaunchedEffect(view, effects) { view?.setEffects(effects) }
@@ -455,13 +460,14 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
                                 ),
                                 modifier = Modifier.fillMaxWidth().height(28.dp),
                             )
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     "${formatDuration(if (scrubbing) scrubValue.toLong() else state.positionMs)} / ${formatDuration(state.durationMs)}",
                                     color = Color.White,
                                     fontSize = 12.sp,
                                 )
-                                Spacer(Modifier.weight(1f))
+                                Spacer(Modifier.width(12.dp))
+                                FlatButton(Icons.Rounded.MoreVert, "أدوات المشغّل") { panel = Panel.Tools }
                                 FlatButton(Icons.Rounded.Subtitles, "الترجمة") { panel = Panel.Subtitles }
                                 FlatButton(Icons.Rounded.Audiotrack, "الصوت") { panel = Panel.Audio }
                                 FlatButton(Icons.Rounded.Speed, "السرعة") { panel = Panel.Speed }
@@ -472,7 +478,6 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
                                     touch()
                                 }
                                 FlatButton(Icons.Rounded.ScreenRotation, "تدوير") { landscape = !landscape; touch() }
-                                FlatButton(Icons.Rounded.MoreVert, "أدوات المشغّل") { panel = Panel.Tools }
                             }
                         }
                     }
@@ -607,7 +612,7 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
             if (syncByEar) SubtitleSyncCard(
                 subtitleDelay, earCapture, { captureEar(true) }, { captureEar(false) },
                 onReset = { resetCapture() }, onClose = { syncByEar = false; resetCapture() },
-                captureEnabled = !state.paused && state.subtitleTracks.any { it.selected },
+                captureEnabled = !state.paused && !state.buffering && state.subtitleTracks.any { it.selected },
                 modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
             )
 
