@@ -59,6 +59,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -108,6 +109,7 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
     var activity_tick by remember { mutableIntStateOf(0) }
     var locked by remember { mutableStateOf(false) }
     var panel by remember { mutableStateOf(Panel.None) }
+    var onlineSubtitles by remember(request.source) { mutableStateOf(false) }
     var resize by remember { mutableIntStateOf(0) }
     var message by remember { mutableStateOf<String?>(null) }
     var scrubbing by remember { mutableStateOf(false) }
@@ -177,8 +179,8 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
         }
     }
     LaunchedEffect(state.paused) { onPlayingChanged(!state.paused) }
-    LaunchedEffect(controls, activity_tick, state.paused, panel, scrubbing) {
-        if (!controls || state.paused || panel != Panel.None || scrubbing) return@LaunchedEffect
+    LaunchedEffect(controls, activity_tick, state.paused, panel, scrubbing, onlineSubtitles) {
+        if (!controls || state.paused || panel != Panel.None || scrubbing || onlineSubtitles) return@LaunchedEffect
         delay(3_500L)
         controls = false
     }
@@ -411,6 +413,7 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
                 ) {
                     when (panel) {
                         Panel.Subtitles -> {
+                            Choice("البحث عن ترجمة عبر الإنترنت…", false) { panel = Panel.None; onlineSubtitles = true }
                             Choice("بدون ترجمة", state.subtitleTracks.none { it.selected }) { view?.selectSubtitle(null) }
                             state.subtitleTracks.forEach { track -> Choice(track.label, track.selected) { view?.selectSubtitle(track.id) } }
                             Choice("ترجمة من ملف…", false) { subtitlePicker.launch("*/*") }
@@ -431,6 +434,26 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
                             Choice("${speed}×", abs(state.speed - speed) < 0.01f) { view?.setSpeed(speed) }
                         }
                     }
+                }
+            }
+
+            if (onlineSubtitles) {
+                key(request.source) {
+                    OnlineSubtitlesDialog(
+                        videoTitle = request.title,
+                        onDismiss = { onlineSubtitles = false; panel = Panel.Subtitles },
+                        onDownloaded = { file, subtitle ->
+                            view?.let { player ->
+                                player.addSubtitleFile(file.path, subtitle.release, subtitle.language)
+                                subtitleDelay = 0
+                                player.setSubtitleDelay(0)
+                                flash("تم تحميل الترجمة وتشغيلها")
+                            }
+                            onlineSubtitles = false
+                            controls = true
+                            touch()
+                        },
+                    )
                 }
             }
         }

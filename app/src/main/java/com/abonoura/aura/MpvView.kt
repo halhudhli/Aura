@@ -83,7 +83,10 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
 
     fun selectSubtitle(id: Int?) = post { if (id == null) setPropertyString("sid", "no") else setPropertyInt("sid", id) }
 
-    fun addSubtitleFile(path: String) = post { command("sub-add", path, "select") }
+    fun addSubtitleFile(path: String, title: String? = null, language: String? = null) = post {
+        if (title == null) command("sub-add", path, "select")
+        else command("sub-add", path, "select", title, language.orEmpty())
+    }
 
     fun setSubtitleScale(scale: Float) = post { setPropertyDouble("sub-scale", scale.toDouble()) }
 

@@ -36,6 +36,8 @@ object Prefs {
         private set
     var subtitleScale by mutableStateOf(1f)
         private set
+    var subtitleLanguage by mutableStateOf("ar")
+        private set
     var historyVersion by mutableStateOf(0)
         private set
 
@@ -52,6 +54,8 @@ object Prefs {
         seekSeconds = sp.getInt("seek_seconds", 10)
         holdSpeed = sp.getFloat("hold_speed", 2f)
         subtitleScale = sp.getFloat("sub_scale", 1f)
+        subtitleLanguage = sp.getString("sub_language", "ar").orEmpty()
+            .takeIf { code -> subtitleLanguages.any { it.code == code } } ?: "ar"
     }
 
     fun putLook(value: AuraLook) { look = value; sp.edit().putString("look", value.name).apply() }
@@ -64,6 +68,7 @@ object Prefs {
     fun putSeek(value: Int) { seekSeconds = value; sp.edit().putInt("seek_seconds", value).apply() }
     fun putHold(value: Float) { holdSpeed = value; sp.edit().putFloat("hold_speed", value).apply() }
     fun putSubScale(value: Float) { subtitleScale = value.coerceIn(0.5f, 2.5f); sp.edit().putFloat("sub_scale", subtitleScale).apply() }
+    fun putSubtitleLanguage(value: String) { subtitleLanguage = value; sp.edit().putString("sub_language", value).apply() }
 
     // ---- where each video stopped, and the watch history (newest first, 60 entries at most)
 

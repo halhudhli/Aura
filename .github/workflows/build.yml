@@ -4,6 +4,9 @@ on:
   push:
     branches: [ "main" ]
     paths-ignore: [ "README.md" ]
+  pull_request:
+    branches: [ "main" ]
+    paths-ignore: [ "README.md" ]
   workflow_dispatch:
 
 concurrency:
@@ -27,11 +30,13 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Build APK
+      - name: Test and build APK
+        env:
+          OPENSUBTITLES_API_KEY: ${{ secrets.OPENSUBTITLES_API_KEY }}
         run: |
           set -o pipefail
           chmod +x gradlew
-          ./gradlew :app:assembleDebug \
+          ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug \
             -Paura.versionName=1.0.${{ github.run_number }} \
             -Paura.versionCode=$((1000 + ${{ github.run_number }})) \
             --stacktrace 2>&1 | tee build.log
@@ -45,8 +50,25 @@ jobs:
             [ -s "$f" ] && echo "::error::$(sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/%0A/g' "$f")"
           done
 
-      - name: Publish release
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aura-checks-${{ github.run_number }}
+          path: |
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.*
+
+      - name: Upload preview APK
         if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aura-preview-${{ github.run_number }}
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
+
+      - name: Publish release
+        if: success() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

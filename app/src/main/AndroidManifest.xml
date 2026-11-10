@@ -4,7 +4,7 @@
     <!-- Videos on the device. -->
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <!-- Only used when a video link is opened. Aura has no ads and no tracking. -->
+    <!-- Video links and subtitle searches/downloads requested by the user. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application

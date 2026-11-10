@@ -23,6 +23,9 @@ android {
         targetSdk = 36
         versionCode = (providers.gradleProperty("aura.versionCode").orNull ?: "1").toInt()
         versionName = providers.gradleProperty("aura.versionName").orNull ?: "1.0.0"
+        val subtitleKey = providers.environmentVariable("OPENSUBTITLES_API_KEY").orNull.orEmpty()
+            .replace("\\", "\\\\").replace("\"", "\\\"").replace("\r", "\\r").replace("\n", "\\n")
+        buildConfigField("String", "OPENSUBTITLES_API_KEY", "\"$subtitleKey\"")
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
@@ -38,6 +41,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
@@ -66,4 +70,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     // mpv: plays every common container and codec, with full subtitle support.
     implementation("io.github.abdallahmehiz:mpv-android-lib:0.1.12")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }
