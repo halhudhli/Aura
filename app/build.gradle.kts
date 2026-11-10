@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.abonoura.aura"
-    compileSdk = 36
+    compileSdk = 37
 
     signingConfigs {
         // One fixed key for every build, so a new APK installs over the old one and keeps its data.
