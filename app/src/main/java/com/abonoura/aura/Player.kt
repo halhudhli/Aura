@@ -147,6 +147,7 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
     fun flash(text: String) { message = text }
     fun touch() { activity_tick++ }
     fun resetCapture() { syncGeneration++; earCapture = EarSyncCapture() }
+    fun openPanel(value: Panel) { syncByEar = false; resetCapture(); panel = value }
     fun changeSubtitleDelay(value: Int) {
         resetCapture()
         subtitleDelay = value.coerceIn(MIN_SUBTITLE_DELAY_MS, MAX_SUBTITLE_DELAY_MS)
@@ -234,7 +235,11 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
             delay(250L)
         }
     }
-    LaunchedEffect(state.paused) { onPlayingChanged(!state.paused) }
+    LaunchedEffect(state.paused) {
+        onPlayingChanged(!state.paused)
+        if (state.paused) activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
     LaunchedEffect(inPip) {
         if (inPip) { syncByEar = false; resetCapture(); visualPath = null; visualPosition = null }
     }
@@ -467,10 +472,10 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
                                     fontSize = 12.sp,
                                 )
                                 Spacer(Modifier.width(12.dp))
-                                FlatButton(Icons.Rounded.MoreVert, "أدوات المشغّل") { panel = Panel.Tools }
-                                FlatButton(Icons.Rounded.Subtitles, "الترجمة") { panel = Panel.Subtitles }
-                                FlatButton(Icons.Rounded.Audiotrack, "الصوت") { panel = Panel.Audio }
-                                FlatButton(Icons.Rounded.Speed, "السرعة") { panel = Panel.Speed }
+                                FlatButton(Icons.Rounded.MoreVert, "أدوات المشغّل") { openPanel(Panel.Tools) }
+                                FlatButton(Icons.Rounded.Subtitles, "الترجمة") { openPanel(Panel.Subtitles) }
+                                FlatButton(Icons.Rounded.Audiotrack, "الصوت") { openPanel(Panel.Audio) }
+                                FlatButton(Icons.Rounded.Speed, "السرعة") { openPanel(Panel.Speed) }
                                 FlatButton(Icons.Rounded.AspectRatio, "الأبعاد") {
                                     resize = (resize + 1) % 3
                                     view?.setResize(resize)
