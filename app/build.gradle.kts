@@ -23,9 +23,11 @@ android {
         targetSdk = 36
         versionCode = (providers.gradleProperty("aura.versionCode").orNull ?: "1").toInt()
         versionName = providers.gradleProperty("aura.versionName").orNull ?: "1.0.0"
-        val subtitleKey = providers.environmentVariable("OPENSUBTITLES_API_KEY").orNull.orEmpty()
-            .replace("\\", "\\\\").replace("\"", "\\\"").replace("\r", "\\r").replace("\n", "\\n")
-        buildConfigField("String", "OPENSUBTITLES_API_KEY", "\"$subtitleKey\"")
+        listOf("SUBSENSE_API_KEY", "OPENSUBTITLESPRO_API_KEY").forEach { name ->
+            val value = providers.environmentVariable(name).orNull.orEmpty()
+                .replace("\\", "\\\\").replace("\"", "\\\"").replace("\r", "\\r").replace("\n", "\\n")
+            buildConfigField("String", name, "\"$value\"")
+        }
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }

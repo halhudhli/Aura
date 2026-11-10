@@ -8,6 +8,11 @@ on:
     branches: [ "main" ]
     paths-ignore: [ "README.md" ]
   workflow_dispatch:
+    inputs:
+      verify_subtitles_api:
+        description: Verify live title and subtitle searches using configured addons (no download)
+        type: boolean
+        default: false
 
 concurrency:
   group: build-aura-${{ github.ref }}
@@ -32,9 +37,21 @@ jobs:
 
       - name: Test and build APK
         env:
-          OPENSUBTITLES_API_KEY: ${{ secrets.OPENSUBTITLES_API_KEY }}
+          SUBSENSE_API_KEY: ${{ secrets.SUBSENSE_API_KEY }}
+          OPENSUBTITLESPRO_API_KEY: ${{ secrets.OPENSUBTITLESPRO_API_KEY }}
+          AURA_LIVE_SUBTITLE_TEST: ${{ github.event_name == 'workflow_dispatch' && inputs.verify_subtitles_api && 'true' || 'false' }}
         run: |
           set -o pipefail
+          if [ -n "$SUBSENSE_API_KEY" ]; then
+            echo "SubSense manifest: configured"
+          else
+            echo "::notice::SubSense manifest is missing."
+          fi
+          if [ -n "$OPENSUBTITLESPRO_API_KEY" ]; then
+            echo "OpenSubtitles PRO manifest: configured"
+          else
+            echo "::notice::OpenSubtitles PRO manifest is missing."
+          fi
           chmod +x gradlew
           ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug \
             -Paura.versionName=1.0.${{ github.run_number }} \

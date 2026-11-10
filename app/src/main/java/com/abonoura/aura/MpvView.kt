@@ -40,7 +40,7 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
         mpv.setOptionString("volume-max", "200")
         // Subtitles: files that are not valid UTF-8 are read as Arabic Windows-1256, a subtitle
         // file next to the video is picked up by itself, and the bundled font covers Arabic and Latin.
-        mpv.setOptionString("sub-codepage", "+cp1256")
+        mpv.setOptionString("sub-codepage", "cp1256")
         mpv.setOptionString("sub-auto", "fuzzy")
         mpv.setOptionString("sub-fonts-dir", File(context.filesDir, "fonts").path)
         mpv.setOptionString("sub-font", "Almarai")
