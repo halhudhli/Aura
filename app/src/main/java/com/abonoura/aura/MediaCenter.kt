@@ -77,7 +77,11 @@ fun MediaCenterScreen(incoming:List<IncomingMedia>,onConsumed:()->Unit,onPlay:(P
     } }
     fun play(request:PlayRequest) {
         when(request.mediaType) {
-            MediaType.Audio -> AudioPlayback.play(context,listOf(request))
+            MediaType.Audio -> {
+                val playlist=playlists.firstOrNull{p->p.entries.any{it.source==request.source} && p.entries.all{it.request().mediaType==MediaType.Audio}}
+                val queue=playlist?.entries?.map{it.request()} ?: listOf(request)
+                AudioPlayback.play(context,queue,queue.indexOfFirst{it.source==request.source}.coerceAtLeast(0))
+            }
             MediaType.Playlist -> importPlaylist(request.source,request.title)
             MediaType.Video -> {
                 val list=playlists.firstOrNull{p->p.entries.any{it.source==request.source}}
@@ -132,7 +136,7 @@ fun MediaCenterScreen(incoming:List<IncomingMedia>,onConsumed:()->Unit,onPlay:(P
                     Chip("الشبكة وNAS",false){network=true}
                     Chip("Xtream",false){xtream=true}
                 }
-                if(!access.videos || !access.audio)TextButton(onClick={permissions.launch(requestedLibraryPermissions())}) {Text(if(access.selectedOnly)"الوصول إلى فيديوهات محددة · إدارة الصلاحيات" else "السماح بعرض ملفات الجهاز تلقائيًا")}
+                if(!access.videos || !access.audio || access.selectedOnly)TextButton(onClick={permissions.launch(requestedLibraryPermissions())}) {Text(if(access.selectedOnly)"الوصول إلى فيديوهات محددة · إدارة الصلاحيات" else "السماح بعرض ملفات الجهاز تلقائيًا")}
                 message?.let { text -> Row(Modifier.fillMaxWidth().auraCard().padding(8.dp),verticalAlignment=Alignment.CenterVertically) {Text(text,color=c.text,modifier=Modifier.weight(1f));TextButton(onClick={message=null}){Text("إغلاق")}} }
                 if(loading)LinearProgressIndicator(Modifier.fillMaxWidth())
                 when(tab) {

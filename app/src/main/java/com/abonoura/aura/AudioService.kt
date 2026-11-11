@@ -53,7 +53,8 @@ class AudioService : MediaSessionService() {
                 override fun onEvents(player: Player, events: Player.Events) { persist(player) }
             })
         }
-        session = MediaSession.Builder(this, player).setCallback(object:MediaSession.Callback {
+        val activity=android.app.PendingIntent.getActivity(this,0,android.content.Intent(this,MainActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP),android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+        session = MediaSession.Builder(this, player).setSessionActivity(activity).setCallback(object:MediaSession.Callback {
             override fun onConnect(session:MediaSession,controller:MediaSession.ControllerInfo):MediaSession.ConnectionResult {
                 if(controller.packageName!=packageName && !controller.isTrusted)return MediaSession.ConnectionResult.reject()
                 return super.onConnect(session,controller)

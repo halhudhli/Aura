@@ -58,8 +58,12 @@ object PlaylistRepository {
     private fun resolveDocument(context:Context,base:String,value:String):String?=runCatching {
         val uri=Uri.parse(base);val id=android.provider.DocumentsContract.getDocumentId(uri)
         val parent=id.substringBeforeLast('/',"")
-        if(parent.isEmpty())return null
-        val path=java.nio.file.Paths.get(parent,Uri.decode(value)).normalize().toString()
+        val decoded=Uri.decode(value)
+        val path=when {
+            decoded.startsWith("/storage/emulated/0/")->"primary:"+decoded.removePrefix("/storage/emulated/0/")
+            decoded.startsWith("/sdcard/")->"primary:"+decoded.removePrefix("/sdcard/")
+            else->{if(parent.isEmpty())return null;java.nio.file.Paths.get(parent,decoded).normalize().toString()}
+        }
         val tree=context.contentResolver.persistedUriPermissions.firstOrNull{grant->grant.isReadPermission && runCatching {
             val root=android.provider.DocumentsContract.getTreeDocumentId(grant.uri)
             path==root || path.startsWith(root.trimEnd('/')+"/")

@@ -109,6 +109,16 @@ tap("فتح")
 time.sleep(3)
 assert any(n.get("text") == "Test channel" for n in nodes()), "Imported M3U channel must appear"
 capture("05b-iptv-playlist")
+tap("Test channel")
+time.sleep(4)
+stream_nodes=nodes()
+if not any(re.search(r"0:[0-9]{2} / 0:45", n.get("text", "")) for n in stream_nodes):
+    adb("shell", "input", "tap", "640", "400")
+    stream_nodes=nodes()
+assert any(re.search(r"0:[0-9]{2} / 0:45", n.get("text", "")) for n in stream_nodes), "Imported channel must play over HTTP"
+capture("05c-iptv-http-playback")
+adb("shell", "input", "keyevent", "4")
+time.sleep(2)
 tap("الإعدادات")
 assert any(n.get("text") == "خلفية الصفحة" for n in nodes()), "Wallpaper controls must be present"
 capture("06-wallpaper-settings")
