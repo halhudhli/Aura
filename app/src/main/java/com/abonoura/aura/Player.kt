@@ -83,6 +83,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
@@ -212,6 +213,7 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
         insets?.hide(WindowInsetsCompat.Type.systemBars())
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose {
+            view?.release()
             insets?.show(WindowInsetsCompat.Type.systemBars())
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             window?.attributes = window?.attributes?.apply { screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE }
@@ -362,7 +364,7 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
                         if(!locked && Prefs.gestures)awaitEachGesture {
                             awaitFirstDown(requireUnconsumed=false)
                             do {
-                                val event=awaitPointerEvent()
+                                val event=awaitPointerEvent(PointerEventPass.Initial)
                                 if(event.changes.count{it.pressed}>=2) {
                                     zoom=(zoom*event.calculateZoom()).coerceIn(1f,5f)
                                     val pan=event.calculatePan()

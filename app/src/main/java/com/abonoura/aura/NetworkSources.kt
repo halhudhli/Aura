@@ -28,6 +28,10 @@ data class NetworkFile(val name:String,val path:String,val directory:Boolean,val
 class UnknownServerKey(val fingerprint:String):Exception("بصمة خادم SFTP: $fingerprint")
 
 object NetworkSources {
+    private val smbBase by lazy {
+        val properties=Properties().apply{setProperty("jcifs.smb.client.minVersion","SMB202");setProperty("jcifs.smb.client.maxVersion","SMB311");setProperty("jcifs.smb.client.responseTimeout","15000");setProperty("jcifs.smb.client.connTimeout","10000")}
+        BaseContext(PropertyConfiguration(properties))
+    }
     fun all(context:Context):List<NetworkSource> = runCatching {
         val json=JSONArray(PrivateSettings.get(context,"network_sources").ifBlank{"[]"})
         (0 until json.length()).map{json.getJSONObject(it)}.map{NetworkSource(it.getString("id"),it.getString("name"),NetworkProtocol.valueOf(it.getString("protocol")),it.getString("host"),it.getInt("port"),it.getString("root"),it.optString("user"),it.optString("password"),it.optString("domain"))}
@@ -84,8 +88,7 @@ object NetworkSources {
         }
     }
     private fun smb(source:NetworkSource,path:String):SmbFile {
-        val props=Properties().apply{setProperty("jcifs.smb.client.minVersion","SMB202");setProperty("jcifs.smb.client.maxVersion","SMB311");setProperty("jcifs.smb.client.responseTimeout","15000");setProperty("jcifs.smb.client.connTimeout","10000")}
-        val context=BaseContext(PropertyConfiguration(props)).withCredentials(NtlmPasswordAuthenticator(source.domain,source.user,source.password))
+        val context=if(source.user.isBlank())smbBase.withAnonymousCredentials()else smbBase.withCredentials(NtlmPasswordAuthenticator(source.domain,source.user,source.password))
         val host=if(source.host.contains(':'))"[${source.host}]"else source.host
         val url=Uri.Builder().scheme("smb").encodedAuthority("$host:${source.port}").path(path).build().toString()
         return SmbFile(url,context)

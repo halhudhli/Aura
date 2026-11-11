@@ -41,6 +41,7 @@ def launch():
 def runtime_evidence():
     try:
         (OUT / "runtime-errors.txt").write_text(adb("logcat", "-d", "-s", "AndroidRuntime:E"))
+        (OUT / "last-anr.txt").write_text(adb("shell", "dumpsys", "activity", "lastanr"))
         (OUT / "media-debug.txt").write_text(adb("logcat", "-d", "-s", "AuraIntent:V", "ExoPlayerImplInternal:V", "MediaSessionService:V", "MediaSessionImpl:V", "MediaControllerImplBase:V"))
     except Exception:
         pass
@@ -113,7 +114,8 @@ assert any(n.get("text") == "خلفية الصفحة" for n in nodes()), "Wallpa
 capture("06-wallpaper-settings")
 tap("خلفية الصفحة")
 if not any(n.get("text") == "AuraMotion.gif" for n in nodes()):
-    tap("Show roots")
+    if not any(n.get("text") == "Downloads" for n in nodes()):
+        tap("Show roots")
     tap("Downloads")
 tap("AuraMotion.gif")
 time.sleep(3)

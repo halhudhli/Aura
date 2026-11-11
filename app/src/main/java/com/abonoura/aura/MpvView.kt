@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.view.SurfaceHolder
 import `is`.xyz.mpv.BaseMPVView
 import `is`.xyz.mpv.MPV
 import `is`.xyz.mpv.MPVNode
@@ -47,6 +48,7 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
     private var loadFailure:String?=null
     private var loadStarted=0L
     private var customFont=""
+    private var attached=false
 
     override fun initOptions() {
         setVo("gpu")
@@ -73,6 +75,19 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
     override fun postInitOptions() = Unit
 
     override fun observeProperties() = Unit
+
+    // Surface destruction can wait for mpv's renderer. Keep it on the same worker as every
+    // other engine call so removing a Compose player never blocks Android's main thread.
+    override fun surfaceCreated(holder:SurfaceHolder) {
+        val surface=holder.surface
+        post {if(surface.isValid){attachSurface(surface);attached=true;setPropertyString("force-window","yes");setPropertyString("vo","gpu")}}
+    }
+    override fun surfaceChanged(holder:SurfaceHolder,format:Int,width:Int,height:Int) {
+        post {setPropertyString("android-surface-size","${width}x$height")}
+    }
+    override fun surfaceDestroyed(holder:SurfaceHolder) {
+        post {setPropertyString("vo","null");setPropertyString("force-window","no");if(attached){detachSurface();attached=false}}
+    }
 
     /** Runs [block] on the mpv thread; ignored after release. */
     fun post(block: MPV.() -> Unit) {
@@ -238,6 +253,14 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
         runCatching { holder.removeCallback(this) }
         runCatching {
             worker.execute {
+                runCatching {
+                    if(mpv.isInitialized) {
+                        mpv.setPropertyBoolean("pause",true)
+                        mpv.setPropertyString("vo","null")
+                        mpv.setPropertyString("force-window","no")
+                        if(attached){mpv.detachSurface();attached=false}
+                    }
+                }
                 runCatching { mpv.destroy() }
             }
             worker.shutdown()
