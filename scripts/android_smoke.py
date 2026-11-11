@@ -57,12 +57,19 @@ assert any("AuraTone" in n.get("text", "") for n in nodes()), "Audio must appear
 capture("03-audio-library")
 adb("shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", "file:///sdcard/Movies/AuraSmoke.mp4", "-t", "video/mp4", "-n", ACTIVITY)
 time.sleep(4)
+if any(n.get("text") == "Got it" for n in nodes()):
+    tap("Got it")
 adb("shell", "input", "tap", "640", "400")
-nodes()
+video_nodes=nodes()
 capture("04-external-video")
+assert any(re.search(r"0:[0-9]{2} / 0:45", n.get("text", "")) for n in video_nodes), "Video duration and position must be available"
 assert PACKAGE in adb("shell", "dumpsys", "activity", "activities"), "Video Activity must remain alive"
 adb("shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", "file:///sdcard/Music/AuraTone.mp3", "-t", "audio/mpeg", "-n", ACTIVITY)
 time.sleep(5)
+nodes()
+capture("04b-external-audio-before-background")
+(OUT / "media-session.txt").write_text(adb("shell", "dumpsys", "media_session"))
+(OUT / "audio-logcat.txt").write_text(adb("logcat", "-d", "-s", "ExoPlayerImplInternal:E", "MediaSessionService:V", "MediaSessionImpl:V", "AndroidRuntime:E"))
 adb("shell", "input", "keyevent", "3")
 time.sleep(2)
 service = adb("shell", "dumpsys", "activity", "services", PACKAGE+"/.AudioService")

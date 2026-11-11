@@ -24,6 +24,7 @@ import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionToken
 import org.json.JSONArray
 import org.json.JSONObject
+import com.google.common.util.concurrent.Futures
 
 /** Owns audio independently of the Activity; Media3 supplies notification and headset controls. */
 class AudioService : MediaSessionService() {
@@ -41,6 +42,7 @@ class AudioService : MediaSessionService() {
         val player = ExoPlayer.Builder(this).setMediaSourceFactory(DefaultMediaSourceFactory(dataSource)).build().apply {
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             setHandleAudioBecomingNoisy(true)
+            setWakeMode(C.WAKE_MODE_NETWORK)
             addListener(object : Player.Listener {
                 override fun onAudioSessionIdChanged(audioSessionId: Int) {
                     equalizer?.release()
@@ -51,7 +53,20 @@ class AudioService : MediaSessionService() {
                 override fun onEvents(player: Player, events: Player.Events) { persist(player) }
             })
         }
-        session = MediaSession.Builder(this, player).build()
+        session = MediaSession.Builder(this, player).setCallback(object:MediaSession.Callback {
+            override fun onConnect(session:MediaSession,controller:MediaSession.ControllerInfo):MediaSession.ConnectionResult {
+                if(controller.packageName!=packageName && !controller.isTrusted)return MediaSession.ConnectionResult.reject()
+                return super.onConnect(session,controller)
+            }
+            override fun onAddMediaItems(session:MediaSession,controller:MediaSession.ControllerInfo,items:List<MediaItem>):com.google.common.util.concurrent.ListenableFuture<List<MediaItem>> {
+                return Futures.immediateFuture(items.map{item->
+                    val source=item.mediaId.ifBlank{item.requestMetadata.mediaUri?.toString().orEmpty()}
+                    require(MediaTypes.playableScheme(source)||source.startsWith('/')){"مصدر الصوت غير صالح"}
+                    val headers=runCatching{JSONObject(item.requestMetadata.extras?.getString("headers").orEmpty().ifBlank{"{}"})}.getOrDefault(JSONObject())
+                    audioItem(this@AudioService,source,item.mediaMetadata.title?.toString().orEmpty(),headers.keys().asSequence().associateWith{headers.getString(it)})
+                })
+            }
+        }).build()
         restore(player)
         checkpoint.post(savePosition)
     }
@@ -133,6 +148,7 @@ object AudioPlayback {
             connecting=false
             runCatching { future.get() }.onSuccess { p ->
                 controller=p
+                queue=(0 until p.mediaItemCount).map{i->val m=p.getMediaItemAt(i);m.mediaId to m.mediaMetadata.title.toString()}
                 p.addListener(object:Player.Listener {
                     override fun onEvents(player:Player,events:Player.Events) {
                         queue=(0 until player.mediaItemCount).map { i -> val m=player.getMediaItemAt(i);m.mediaId to m.mediaMetadata.title.toString() }

@@ -11,6 +11,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.Typography
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
@@ -88,6 +92,13 @@ fun colorsFor(look: AuraLook): AuraColors = when (look) {
 val LocalAura = staticCompositionLocalOf { colorsFor(AuraLook.Glass) }
 
 val CardShape = RoundedCornerShape(16.dp)
+private val AuraFont=FontFamily(Font(R.font.almarai_regular),Font(R.font.almarai_bold,FontWeight.Bold))
+private val AuraTypography=Typography().let{t->t.copy(
+    displayLarge=t.displayLarge.copy(fontFamily=AuraFont),displayMedium=t.displayMedium.copy(fontFamily=AuraFont),displaySmall=t.displaySmall.copy(fontFamily=AuraFont),
+    headlineLarge=t.headlineLarge.copy(fontFamily=AuraFont),headlineMedium=t.headlineMedium.copy(fontFamily=AuraFont),headlineSmall=t.headlineSmall.copy(fontFamily=AuraFont),
+    titleLarge=t.titleLarge.copy(fontFamily=AuraFont),titleMedium=t.titleMedium.copy(fontFamily=AuraFont),titleSmall=t.titleSmall.copy(fontFamily=AuraFont),
+    bodyLarge=t.bodyLarge.copy(fontFamily=AuraFont),bodyMedium=t.bodyMedium.copy(fontFamily=AuraFont),bodySmall=t.bodySmall.copy(fontFamily=AuraFont),
+    labelLarge=t.labelLarge.copy(fontFamily=AuraFont),labelMedium=t.labelMedium.copy(fontFamily=AuraFont),labelSmall=t.labelSmall.copy(fontFamily=AuraFont))}
 
 /** A card in the current look: translucent over a picture, solid otherwise. */
 @Composable
@@ -107,7 +118,7 @@ fun AuraTheme(motionEnabled: Boolean = true, content: @Composable () -> Unit) {
         darkColorScheme(primary = colors.accent, onPrimary = colors.onAccent, secondary = Color(0xFFB69BFF), surface = Color(0xFF10192B), onSurface = colors.text)
     }
     CompositionLocalProvider(LocalAura provides colors) {
-        MaterialTheme(colorScheme = scheme) {
+        MaterialTheme(colorScheme = scheme, typography=AuraTypography) {
             Box(Modifier.fillMaxSize().background(colors.background)) {
                 if (look == AuraLook.Glass) WallpaperBackground(motionEnabled)
                 content()
