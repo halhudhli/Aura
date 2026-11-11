@@ -64,9 +64,8 @@ object Media {
                 val bucketId = c.getColumnIndexOrThrow(columns[8])
                 val added = c.getColumnIndexOrThrow(columns[9])
                 while (c.moveToNext()) {
-                    val path = c.getString(data).orEmpty()
-                    if (path.isBlank()) continue
                     val videoId = c.getLong(id)
+                    val path = c.getString(data).orEmpty().ifBlank { ContentUris.withAppendedId(collection, videoId).toString() }
                     out += Video(
                         id = videoId,
                         uri = ContentUris.withAppendedId(collection, videoId),
