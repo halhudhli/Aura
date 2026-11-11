@@ -20,7 +20,8 @@ object NetworkRelay {
             Thread({while(!socket.isClosed)runCatching{val connection=socket.accept();workers.execute{serve(app,connection)}}},"AuraLoopback").apply{isDaemon=true;start()}
         }
         val existing=sources.entries.firstOrNull{it.value==source}?.key
-        val token=existing ?: UUID.randomUUID().toString().also{if(sources.size>=64)sources.keys.firstOrNull()?.let{old->sources.remove(old)};sources[it]=source}
+        // Audio queues resolve their items up front; retain the complete supported playlist.
+        val token=existing ?: UUID.randomUUID().toString().also{if(sources.size>=40000)sources.keys.firstOrNull()?.let{old->sources.remove(old)};sources[it]=source}
         return "http://127.0.0.1:${server!!.localPort}/$token"
     }
     private fun serve(context:Context,socket:Socket) {
