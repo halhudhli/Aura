@@ -12,6 +12,7 @@ import java.util.concurrent.Executors
 object NetworkRelay {
     private var server:ServerSocket?=null
     private val sources=ConcurrentHashMap<String,String>()
+    private val tokens=ConcurrentHashMap<String,String>()
     private val workers=Executors.newFixedThreadPool(4){Thread(it,"AuraNetwork").apply{isDaemon=true}}
     @Synchronized fun url(context:Context,source:String):String {
         if(server==null) {
@@ -19,9 +20,12 @@ object NetworkRelay {
             val app=context.applicationContext
             Thread({while(!socket.isClosed)runCatching{val connection=socket.accept();workers.execute{serve(app,connection)}}},"AuraLoopback").apply{isDaemon=true;start()}
         }
-        val existing=sources.entries.firstOrNull{it.value==source}?.key
+        val existing=tokens[source]
         // Audio queues resolve their items up front; retain the complete supported playlist.
-        val token=existing ?: UUID.randomUUID().toString().also{if(sources.size>=40000)sources.keys.firstOrNull()?.let{old->sources.remove(old)};sources[it]=source}
+        val token=existing ?: UUID.randomUUID().toString().also{
+            if(sources.size>=40000)sources.keys.firstOrNull()?.let{old->sources.remove(old)?.let{value->tokens.remove(value,old)}}
+            sources[it]=source;tokens[source]=it
+        }
         return "http://127.0.0.1:${server!!.localPort}/$token"
     }
     private fun serve(context:Context,socket:Socket) {
