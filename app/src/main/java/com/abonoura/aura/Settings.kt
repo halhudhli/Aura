@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -29,6 +31,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -100,6 +104,11 @@ fun SettingsScreen(versionName: String, onBack: () -> Unit) {
             }
 
             Section("حول التطبيق") {
+                Image(
+                    painterResource(R.drawable.aura_wordmark), contentDescription = "AURA · أورا",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxWidth().height(106.dp).clip(RoundedCornerShape(12.dp)).background(androidx.compose.ui.graphics.Color(0xFF080B15)),
+                )
                 Text("Aura · الإصدار $versionName", color = colors.text, fontSize = 14.sp)
                 Text("مشغّل فيديو بلا إعلانات ولا تتبّع. بواسطة Abonoura.", color = colors.subText, fontSize = 13.sp)
                 Text("يعتمد على مكتبة mpv مفتوحة المصدر لتشغيل الفيديو، وخط Almarai للترجمة.", color = colors.subText, fontSize = 12.sp)

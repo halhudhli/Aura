@@ -149,7 +149,7 @@ fun OnlineSubtitlesDialog(videoTitle: String, onDismiss: () -> Unit, onDownloade
 
     Dialog(onDismissRequest = { dismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-            MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFFB59CFF), surface = Color(0xFF18161F))) {
+            MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFF42E8D5), surface = Color(0xFF10192B))) {
                 Surface(Modifier.widthIn(max = 720.dp).fillMaxWidth(0.96f).fillMaxHeight(0.94f), shape = RoundedCornerShape(20.dp)) {
                     Column {
                         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 6.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {

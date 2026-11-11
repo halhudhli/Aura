@@ -47,7 +47,7 @@ fun SubtitleSyncCard(
     unavailableMessage: String? = null,
     modifier: Modifier = Modifier,
 ) {
-    val accent = Color(0xFFB59CFF)
+    val accent = Color(0xFF42E8D5)
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         Column(
             modifier.widthIn(max = 380.dp).fillMaxWidth()
@@ -99,7 +99,7 @@ private fun SyncCaptureButton(
     val shape = RoundedCornerShape(12.dp)
     val foreground = if (captured) Color(0xFF160E27) else Color.White.copy(alpha = if (enabled) 1f else 0.4f)
     Row(
-        modifier.clip(shape).background(if (captured) Color(0xFFB59CFF) else Color.White.copy(alpha = 0.12f))
+        modifier.clip(shape).background(if (captured) Color(0xFF42E8D5) else Color.White.copy(alpha = 0.12f))
             .clickable(enabled = enabled, onClick = onClick).padding(horizontal = 12.dp, vertical = 13.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,

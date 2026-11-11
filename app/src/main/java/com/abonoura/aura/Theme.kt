@@ -53,35 +53,35 @@ private fun solid(color: Color) = Brush.verticalGradient(listOf(color, color))
 
 fun colorsFor(look: AuraLook): AuraColors = when (look) {
     AuraLook.Glass -> AuraColors(
-        // Aura's own colours: night violet, with a soft purple light rising from one corner.
-        background = Brush.linearGradient(listOf(Color(0xFF0B0A14), Color(0xFF1A1038), Color(0xFF4A27B8))),
-        text = Color(0xFFF6F1FF), subText = Color(0xFFE9D8FF).copy(alpha = 0.72f),
-        card = Color(0xFF0B0A14).copy(alpha = 0.50f), line = Color(0xFFA66BFF).copy(alpha = 0.22f),
-        accent = Color(0xFFA66BFF), onAccent = Color(0xFF0B0A14), isLight = false, pictureBackground = true,
+        // The wave identity: midnight, turquoise light and a violet edge.
+        background = Brush.linearGradient(listOf(Color(0xFF080B15), Color(0xFF111C36), Color(0xFF24205A))),
+        text = Color(0xFFF7F7FF), subText = Color(0xFFC4D8EE).copy(alpha = 0.80f),
+        card = Color(0xFF080B15).copy(alpha = 0.62f), line = Color(0xFF42E8D5).copy(alpha = 0.22f),
+        accent = Color(0xFF42E8D5), onAccent = Color(0xFF041923), isLight = false, pictureBackground = true,
     )
     AuraLook.MawjDark -> AuraColors(
-        background = solid(Color(0xFF0D0D0D)),
-        text = Color(0xFFF2F2F2), subText = Color(0xFF9A9A9A),
-        card = Color(0xFF1A1A1A), line = Color.Transparent,
-        accent = Color(0xFFB59CFF), onAccent = Color(0xFF170B33), isLight = false, pictureBackground = false,
+        background = solid(Color(0xFF080B15)),
+        text = Color(0xFFF7F7FF), subText = Color(0xFFA6B6CB),
+        card = Color(0xFF10192B), line = Color(0xFF8B5CF6).copy(alpha = 0.18f),
+        accent = Color(0xFFB69BFF), onAccent = Color(0xFF170B33), isLight = false, pictureBackground = false,
     )
     AuraLook.PureBlack -> AuraColors(
         background = solid(Color.Black),
         text = Color.White, subText = Color(0xFF8A8A8A),
         card = Color(0xFF0C0C0C), line = Color(0xFF222222),
-        accent = Color(0xFF4FD1C5), onAccent = Color(0xFF04201D), isLight = false, pictureBackground = false,
+        accent = Color(0xFF42E8D5), onAccent = Color(0xFF041923), isLight = false, pictureBackground = false,
     )
     AuraLook.Light -> AuraColors(
         background = solid(Color(0xFFF4F2EE)),
         text = Color(0xFF1B1B1B), subText = Color(0xFF6A6A6A),
         card = Color.White, line = Color(0xFFE2DED6),
-        accent = Color(0xFF185FA5), onAccent = Color.White, isLight = true, pictureBackground = false,
+        accent = Color(0xFF006675), onAccent = Color.White, isLight = true, pictureBackground = false,
     )
     AuraLook.Sea -> AuraColors(
-        background = Brush.linearGradient(listOf(Color(0xFF06283D), Color(0xFF0B4F6C), Color(0xFF1B1B3A))),
+        background = Brush.linearGradient(listOf(Color(0xFF080B15), Color(0xFF073C51), Color(0xFF20204A))),
         text = Color.White, subText = Color.White.copy(alpha = 0.72f),
         card = Color.White.copy(alpha = 0.09f), line = Color.White.copy(alpha = 0.14f),
-        accent = Color(0xFF5DCAA5), onAccent = Color(0xFF04342C), isLight = false, pictureBackground = true,
+        accent = Color(0xFF42E8D5), onAccent = Color(0xFF041923), isLight = false, pictureBackground = true,
     )
 }
 
@@ -102,9 +102,9 @@ fun AuraTheme(content: @Composable () -> Unit) {
     val look = Prefs.look
     val colors = remember(look) { colorsFor(look) }
     val scheme = if (colors.isLight) {
-        lightColorScheme(primary = colors.accent, onPrimary = colors.onAccent, surface = Color.White, onSurface = colors.text)
+        lightColorScheme(primary = colors.accent, onPrimary = colors.onAccent, secondary = Color(0xFF7242D0), surface = Color.White, onSurface = colors.text)
     } else {
-        darkColorScheme(primary = colors.accent, onPrimary = colors.onAccent, surface = Color(0xFF1A1A1A), onSurface = colors.text)
+        darkColorScheme(primary = colors.accent, onPrimary = colors.onAccent, secondary = Color(0xFFB69BFF), surface = Color(0xFF10192B), onSurface = colors.text)
     }
     CompositionLocalProvider(LocalAura provides colors) {
         MaterialTheme(colorScheme = scheme) {

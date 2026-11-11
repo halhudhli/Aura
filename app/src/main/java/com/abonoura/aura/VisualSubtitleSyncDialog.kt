@@ -68,7 +68,7 @@ fun VisualSubtitleSyncDialog(
     }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-            MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFFB59CFF))) {
+            MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFF42E8D5))) {
                 Surface(Modifier.widthIn(max = 720.dp).fillMaxWidth(0.96f).fillMaxHeight(0.94f), shape = RoundedCornerShape(20.dp)) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(Modifier.fillMaxWidth()) {
