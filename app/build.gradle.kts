@@ -30,6 +30,7 @@ android {
         }
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            if(providers.gradleProperty("aura.emulator").orNull=="true")abiFilters += "x86_64"
         }
     }
 
@@ -70,6 +71,16 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.12.2")
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation("androidx.media3:media3-exoplayer:1.11.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.11.1")
+    implementation("androidx.media3:media3-exoplayer-dash:1.11.1")
+    implementation("androidx.media3:media3-exoplayer-rtsp:1.11.1")
+    implementation("androidx.media3:media3-session:1.11.1")
+    implementation("androidx.media3:media3-ui:1.11.1")
+    implementation("androidx.documentfile:documentfile:1.1.0")
+    implementation("eu.agno3.jcifs:jcifs-ng:2.1.10")
+    implementation("com.github.mwiede:jsch:2.28.8")
+    implementation("commons-net:commons-net:3.13.0")
     // mpv: plays every common container and codec, with full subtitle support.
     implementation("io.github.abdallahmehiz:mpv-android-lib:0.1.12")
 

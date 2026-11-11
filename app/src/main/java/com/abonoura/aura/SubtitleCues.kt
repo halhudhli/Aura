@@ -113,7 +113,7 @@ object SubtitleCues {
         return hours * 3_600_000L + minutes * 60_000L + wholeSeconds * 1_000L + milliseconds
     }
 
-    private fun displayText(value: String): String = entity.replace(
+    internal fun displayText(value: String): String = entity.replace(
         htmlTags.replace(assTags.replace(value, ""), "")
             .replace("\\N", "\n").replace("\\n", "\n").replace("\\h", " "),
     ) { match ->

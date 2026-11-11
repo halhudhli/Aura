@@ -17,6 +17,8 @@ fun addBookmark(positions: List<Long>, positionMs: Long): List<Long> {
 
 /** Playback positions only, kept in app-private preferences. Sources are represented by a hash. */
 object PlaybackBookmarks {
+    fun note(context:Context,source:String,positionMs:Long):String=preferences(context).getString("note:${sourceKey(source)}:$positionMs","").orEmpty()
+    fun saveNote(context:Context,source:String,positionMs:Long,note:String) {preferences(context).edit().putString("note:${sourceKey(source)}:$positionMs",note.take(1000)).apply()}
     @Synchronized
     fun load(context: Context, source: String): List<Long> {
         val encoded = preferences(context).getString(sourceKey(source), "").orEmpty()
@@ -35,6 +37,7 @@ object PlaybackBookmarks {
         require(positionMs >= 0L)
         val result = load(context, source).filterNot { it == positionMs }
         save(context, source, result)
+        preferences(context).edit().remove("note:${sourceKey(source)}:$positionMs").apply()
         return result
     }
 

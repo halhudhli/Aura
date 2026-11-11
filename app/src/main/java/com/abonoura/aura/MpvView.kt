@@ -1,6 +1,7 @@
 package com.abonoura.aura
 
 import android.content.Context
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import `is`.xyz.mpv.BaseMPVView
@@ -29,6 +30,7 @@ data class PlaybackState(
     val videoCodec: String = "",
     val audioCodec: String = "",
     val fps: Double = 0.0,
+    val error:String?=null,
 )
 
 /**
@@ -42,6 +44,9 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
     private val released = AtomicBoolean(false)
     private val main = Handler(Looper.getMainLooper())
     private var appliedAudioMode = AudioMode.Normal
+    private var loadFailure:String?=null
+    private var loadStarted=0L
+    private var customFont=""
 
     override fun initOptions() {
         setVo("gpu")
@@ -49,6 +54,7 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
         mpv.setOptionString("hwdec", if (Prefs.hardwareDecoding) "auto" else "no")
         mpv.setOptionString("msg-level", "all=warn")
         mpv.setOptionString("volume-max", "200")
+        mpv.setOptionString("network-timeout","20")
         mpv.setOptionString("screenshot-format", "png")
         // Subtitles: files that are not valid UTF-8 are read as Arabic Windows-1256, a subtitle
         // file next to the video is picked up by itself, and the bundled font covers Arabic and Latin.
@@ -56,6 +62,7 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
         mpv.setOptionString("sub-auto", "fuzzy")
         mpv.setOptionString("sub-fonts-dir", File(context.filesDir, "fonts").path)
         mpv.setOptionString("sub-font", "Almarai")
+        mpv.setOptionString("slang",listOf(Prefs.subtitleLanguage,"ar","en").distinct().joinToString(","))
         mpv.setOptionString("sub-scale", Prefs.subtitleScale.toString())
         mpv.setOptionString("demuxer-max-bytes", "${64 * 1024 * 1024}")
         mpv.setOptionString("demuxer-max-back-bytes", "${32 * 1024 * 1024}")
@@ -77,10 +84,20 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
         }
     }
 
-    fun load(source: String, startMs: Long) = post {
+    fun load(source: String, startMs: Long, headers: Map<String, String> = emptyMap()) = post {
+        loadFailure=null;loadStarted=android.os.SystemClock.elapsedRealtime()
+        try {
+        val playable = when {
+            source.startsWith("aura-network://") -> NetworkRelay.url(context,source)
+            source.startsWith("content://") -> context.contentResolver.openFileDescriptor(Uri.parse(source), "r")?.use{it.detachFd()}?.let { "fdclose://$it" } ?: error("access")
+            source.startsWith("file://") -> Uri.parse(source).path ?: return@post
+            else -> source
+        }
+        setPropertyString("http-header-fields", headers.entries.joinToString(",") { (key, value) -> "$key: ${value.replace("\\", "\\\\").replace(",", "\\,")}" })
         setPropertyString("start", if (startMs > 0L) (startMs / 1000.0).toString() else "none")
         setPropertyBoolean("pause", false)
-        command("loadfile", source, "replace")
+        command("loadfile", playable, "replace")
+        }catch(_:Exception){loadFailure="تعذّر فتح المصدر. تحقق من وجود الملف وصلاحية الوصول أو اتصال الشبكة."}
     }
 
     fun setPaused(paused: Boolean) = post { setPropertyBoolean("pause", paused) }
@@ -90,6 +107,10 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
     fun seekBy(seconds: Int) = post { command("seek", seconds.toString(), "relative") }
 
     fun setSpeed(speed: Float) = post { setPropertyDouble("speed", speed.toDouble()) }
+    fun setZoom(scale:Float,x:Float,y:Float)=post {
+        setPropertyDouble("video-zoom",(kotlin.math.ln(scale.coerceIn(1f,5f))/kotlin.math.ln(2f)).toDouble())
+        setPropertyDouble("video-pan-x",x.coerceIn(-1f,1f).toDouble());setPropertyDouble("video-pan-y",y.coerceIn(-1f,1f).toDouble())
+    }
 
     fun selectAudio(id: Int?) = post { if (id == null) setPropertyString("aid", "no") else setPropertyInt("aid", id) }
 
@@ -103,6 +124,7 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
     fun setSubtitleScale(scale: Float) = post { setPropertyDouble("sub-scale", scale.toDouble()) }
 
     fun setSubtitleDelay(ms: Int) = post { setPropertyDouble("sub-delay", ms / 1000.0) }
+    fun selectSecondarySubtitle(id:Int?)=post {setPropertyString("secondary-sid",id?.toString() ?: "no");setPropertyDouble("secondary-sub-pos",5.0)}
 
     /** Captures the engine timestamp at the tap, without the UI polling interval's rounding. */
     fun capturePosition(onPosition: (Long) -> Unit) = post {
@@ -110,11 +132,15 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
         main.post { if (!released.get()) onPosition(position) }
     }
 
-    fun setSubtitleAppearance(style: SubtitleAppearance) = post { applyAppearance(style) }
+    fun setSubtitleAppearance(style: SubtitleAppearance) = post {
+        if(style.customFont!=customFont){customFont=style.customFont;setPropertyString("sub-fonts-dir",File(context.filesDir,"fonts").path)}
+        applyAppearance(style)
+    }
 
     private fun MPV.applyAppearance(style: SubtitleAppearance) {
         val value = style.normalized()
-        setPropertyString("sub-font", value.font.mpvName)
+        setPropertyString("sub-font", value.customFont.ifBlank{value.font.mpvName})
+        setPropertyBoolean("sub-filter-sdh",value.removeSdh)
         setPropertyBoolean("sub-bold", value.bold)
         setPropertyString("sub-color", value.mpvTextColor)
         setPropertyDouble("sub-border-size", if (value.outlineEnabled) 2.0 else 0.0)
@@ -201,6 +227,7 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
                 videoCodec = getPropertyString("video-format").orEmpty(),
                 audioCodec = getPropertyString("audio-codec-name").orEmpty(),
                 fps = getPropertyDouble("estimated-vf-fps") ?: 0.0,
+                error=loadFailure ?: if(loadStarted>0 && android.os.SystemClock.elapsedRealtime()-loadStarted>5000 && getPropertyBoolean("idle-active")==true)"تعذّر تشغيل المصدر؛ تحقق من الرابط والصيغة والصلاحيات."else null,
             )
         main.post { if (!released.get()) onState(snapshot) }
     }

@@ -93,12 +93,12 @@ val CardShape = RoundedCornerShape(16.dp)
 @Composable
 fun Modifier.auraCard(shape: Shape = CardShape): Modifier {
     val c = LocalAura.current
-    return this.clip(shape).background(c.card).border(1.dp, c.line, shape)
+    return this.clip(shape).background(if(Prefs.look==AuraLook.Glass)c.card.copy(alpha=Prefs.glassOpacity/100f)else c.card).border(1.dp, c.line, shape)
 }
 
 /** Applies the look and draws its background once, behind every screen. */
 @Composable
-fun AuraTheme(content: @Composable () -> Unit) {
+fun AuraTheme(motionEnabled: Boolean = true, content: @Composable () -> Unit) {
     val look = Prefs.look
     val colors = remember(look) { colorsFor(look) }
     val scheme = if (colors.isLight) {
@@ -109,7 +109,7 @@ fun AuraTheme(content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalAura provides colors) {
         MaterialTheme(colorScheme = scheme) {
             Box(Modifier.fillMaxSize().background(colors.background)) {
-                if (look == AuraLook.Glass) GlassPicture()
+                if (look == AuraLook.Glass) WallpaperBackground(motionEnabled)
                 content()
             }
         }

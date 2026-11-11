@@ -20,6 +20,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -101,14 +105,22 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** What to play: a file path or a link, with the name shown in the player. */
-data class PlayRequest(val source: String, val title: String)
+data class PlayRequest(
+    val source: String,
+    val title: String,
+    val mediaType: MediaType = MediaType.Video,
+    val startMs: Long = 0L,
+    val headers: Map<String, String> = emptyMap(),
+    val queue:List<QueueItem> = emptyList(),
+)
+data class QueueItem(val source:String,val title:String,val headers:Map<String,String> = emptyMap())
 
 private enum class Panel { None, Subtitles, Audio, Speed, Appearance, Tools, Effects, Chapters, Bookmarks, Info }
 
 private enum class DragKind { None, Seek, Brightness, Volume }
 
 @Composable
-fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, onPlayingChanged: (Boolean) -> Unit, onClose: () -> Unit) {
+fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, onPlayingChanged: (Boolean) -> Unit, onClose: () -> Unit,onNext:(()->Unit)?=null,onPrevious:(()->Unit)?=null) {
     val context = LocalContext.current
     val activity = context as? Activity
     val colors = LocalAura.current
@@ -120,8 +132,14 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
     var locked by remember { mutableStateOf(false) }
     var panel by remember { mutableStateOf(Panel.None) }
     var onlineSubtitles by remember(request.source) { mutableStateOf(false) }
+    var automaticSync by remember {mutableStateOf<String?>(null)}
+    var secondarySubtitle by remember {mutableStateOf<Int?>(null)}
+    var companion by remember{mutableStateOf(false)}
+    var casting by remember{mutableStateOf(false)}
+    var reconnects by remember{mutableIntStateOf(0)}
     var resize by remember { mutableIntStateOf(0) }
     var message by remember { mutableStateOf<String?>(null) }
+    var initializationError by remember{mutableStateOf(false)}
     var scrubbing by remember { mutableStateOf(false) }
     var scrubValue by remember { mutableFloatStateOf(0f) }
     var subtitleDelay by remember { mutableIntStateOf(0) }
@@ -135,7 +153,12 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
     var visualPath by remember { mutableStateOf<String?>(null) }
     var visualPosition by remember { mutableStateOf<Long?>(null) }
     var resumeAfterVisual by remember { mutableStateOf(false) }
-    var effects by remember { mutableStateOf(PlayerEffects()) }
+    var effects by remember { mutableStateOf(PlayerPreferences.effects(context)) }
+    var zoom by remember {mutableFloatStateOf(1f)}
+    var panX by remember {mutableFloatStateOf(0f)}
+    var panY by remember {mutableFloatStateOf(0f)}
+    var sleepAtEnd by remember {mutableStateOf(false)}
+    var editingBookmark by remember {mutableStateOf<Long?>(null)}
     var repeatStart by remember { mutableStateOf<Long?>(null) }
     var repeatEnd by remember { mutableStateOf<Long?>(null) }
     var sleepDeadline by remember { mutableStateOf<Long?>(null) }
@@ -196,6 +219,14 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
             onPlayingChanged(false)
         }
     }
+    DisposableEffect(view) {
+        val audio=context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val focus=android.media.AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_MEDIA).setContentType(android.media.AudioAttributes.CONTENT_TYPE_MOVIE).build())
+            .setOnAudioFocusChangeListener{change->if(change==AudioManager.AUDIOFOCUS_LOSS || change==AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)view?.setPaused(true)}.build()
+        if(view!=null)audio.requestAudioFocus(focus)
+        onDispose{audio.abandonAudioFocusRequest(focus)}
+    }
 
     fun saveProgress() {
         val s = latestState
@@ -236,16 +267,23 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
         }
     }
     LaunchedEffect(state.paused) {
-        onPlayingChanged(!state.paused)
+        onPlayingChanged(!state.paused && state.error==null)
         if (state.paused) activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+    LaunchedEffect(state.buffering,state.ended,state.paused) {
+        if((state.buffering || state.ended && state.durationMs<=0) && !state.paused && request.source.startsWith("http") && reconnects<3) {
+            delay(20000);reconnects++;view?.load(request.source,state.positionMs,request.headers);flash("إعادة الاتصال بالبث ($reconnects/3)")
+        }
     }
     LaunchedEffect(inPip) {
         if (inPip) { syncByEar = false; resetCapture(); visualPath = null; visualPosition = null }
     }
     LaunchedEffect(state.paused, state.subtitleTracks.firstOrNull { it.selected }?.id, state.audioTracks.firstOrNull { it.selected }?.id, audioDelay) { resetCapture() }
     LaunchedEffect(view, SubtitleAppearanceStore.value) { view?.setSubtitleAppearance(SubtitleAppearanceStore.value) }
-    LaunchedEffect(view, effects) { view?.setEffects(effects) }
+    LaunchedEffect(view, effects) { view?.setEffects(effects);PlayerPreferences.save(context,effects) }
+    LaunchedEffect(state.ended) {if(state.ended) {if(sleepAtEnd)view?.setPaused(true)else if(state.durationMs>0){saveProgress();onNext?.invoke()}}}
+    DisposableEffect(request.source) {onDispose{saveProgress()}}
     LaunchedEffect(sleepDeadline) {
         val deadline = sleepDeadline ?: run { sleepRemaining = null; return@LaunchedEffect }
         while (true) {
@@ -283,6 +321,16 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
         }
     }
 
+    editingBookmark?.let {position->
+        var note by remember(position){mutableStateOf(PlaybackBookmarks.note(context,request.source,position))}
+        androidx.compose.material3.AlertDialog(onDismissRequest={editingBookmark=null},title={Text("ملاحظة عند ${formatDuration(position)}")},text={androidx.compose.material3.OutlinedTextField(note,{note=it.take(1000)})},confirmButton={androidx.compose.material3.TextButton(onClick={PlaybackBookmarks.saveNote(context,request.source,position,note);editingBookmark=null}){Text("حفظ")}},dismissButton={androidx.compose.material3.TextButton(onClick={editingBookmark=null}){Text("إلغاء")}})
+    }
+    val fontPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri:Uri?->
+        if(uri!=null)scope.launch {runCatching{SubtitleFonts.import(context,uri)}.onSuccess{SubtitleAppearanceStore.update(SubtitleAppearanceStore.value.copy(customFont=it));flash("تم استيراد الخط")}.onFailure{flash(it.message ?: "تعذّر استيراد الخط")}}
+    }
+    automaticSync?.let {path->AutomaticSyncDialog(path,request,{automaticSync=null}){corrected->view?.addSubtitleFile(corrected);changeSubtitleDelay(0);automaticSync=null;flash("تم تطبيق التوقيت المصحّح")}}
+    if(companion)CompanionDialog(request.title,state.subtitleTracks.firstOrNull{it.selected}?.externalPath,{companion=false}){path->view?.addSubtitleFile(path);changeSubtitleDelay(0)}
+    if(casting)CastDialog(request,{casting=false}){view?.setPaused(true)}
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
@@ -293,9 +341,9 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
                         installFonts(viewContext)
                         Utils.copyAssets(viewContext)
                         initialize(viewContext.filesDir.path, viewContext.cacheDir.path)
-                        val start = if (Prefs.resume) Prefs.progress(request.source)?.positionMs ?: 0L else 0L
-                        load(request.source, start)
-                    }
+                        val start = if (request.startMs > 0) request.startMs else if (Prefs.resume) Prefs.progress(request.source)?.positionMs ?: 0L else 0L
+                        load(request.source, start, request.headers)
+                    }.onFailure{initializationError=true}
                     view = this
                 }
             },
@@ -310,6 +358,20 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
             Box(
                 Modifier
                     .fillMaxSize()
+                    .pointerInput(locked) {
+                        if(!locked && Prefs.gestures)awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed=false)
+                            do {
+                                val event=awaitPointerEvent()
+                                if(event.changes.count{it.pressed}>=2) {
+                                    zoom=(zoom*event.calculateZoom()).coerceIn(1f,5f)
+                                    val pan=event.calculatePan()
+                                    panX=(panX+pan.x/size.width).coerceIn(-1f,1f);panY=(panY+pan.y/size.height).coerceIn(-1f,1f)
+                                    view?.setZoom(zoom,panX,panY);event.changes.forEach{it.consume()}
+                                }
+                            }while(event.changes.any{it.pressed})
+                        }
+                    }
                     .pointerInput(locked) {
                         detectTapGestures(
                             onTap = {
@@ -393,8 +455,13 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
             if (state.buffering && !state.paused) {
                 CircularProgressIndicator(color = Color.White, modifier = Modifier.align(Alignment.Center).size(44.dp))
             }
+            if(state.error!=null || initializationError)Column(Modifier.align(Alignment.Center).widthIn(max=460.dp).background(Color.Black.copy(alpha=.85f)).padding(22.dp)) {
+                Text(state.error ?: "تعذّر بدء محرّك الفيديو على هذا الجهاز",color=Color.White)
+                androidx.compose.material3.TextButton(onClick={close()}){Text("العودة إلى المكتبة")}
+            }
 
             val centerText = if (seekPreviewMs >= 0L) "${formatDuration(seekPreviewMs)} / ${formatDuration(state.durationMs)}" else message
+            if(seekPreviewMs>=0L || scrubbing)SeekPreview(request.source,if(scrubbing)scrubValue.toLong() else seekPreviewMs,Modifier.align(Alignment.Center).padding(bottom=110.dp))
             if (centerText != null) {
                 Text(
                     centerText,
@@ -517,6 +584,13 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
                                 }
                             }
                             Choice("شكل الترجمة…", false) { panel = Panel.Appearance }
+                            Choice("مزامنة تلقائية للتوقيت…",false) {
+                                val path=state.subtitleTracks.firstOrNull{it.selected}?.externalPath
+                                if(path==null)flash("اختر ترجمة من ملف أو البحث أولًا")else{automaticSync=path;panel=Panel.None}
+                            }
+                            Choice("إلغاء الترجمة الثانية",secondarySubtitle==null){secondarySubtitle=null;view?.selectSecondarySubtitle(null)}
+                            state.subtitleTracks.filterNot{it.selected}.forEach{track->Choice("ترجمة ثانية: ${track.label}",secondarySubtitle==track.id){secondarySubtitle=track.id;view?.selectSecondarySubtitle(track.id)}}
+                            Choice("إعادة آخر جملة (5 ثوانٍ)",false){seekBy(-5)}
                             Choice("بدون ترجمة", state.subtitleTracks.none { it.selected }) { view?.selectSubtitle(null) }
                             state.subtitleTracks.forEach { track -> Choice(track.label, track.selected) { view?.selectSubtitle(track.id) } }
                             Choice("ترجمة من ملف…", false) { subtitlePicker.launch("*/*") }
@@ -537,13 +611,23 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
                         Panel.Speed -> listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f).forEach { speed ->
                             Choice("${speed}×", abs(state.speed - speed) < 0.01f) { view?.setSpeed(speed) }
                         }
-                        Panel.Appearance -> SubtitleAppearancePanel(
+                        Panel.Appearance -> {
+                            Choice("استيراد خط TTF / OTF…",false){fontPicker.launch(arrayOf("*/*"))}
+                            if(SubtitleAppearanceStore.value.customFont.isNotBlank())Choice("الخط: ${SubtitleAppearanceStore.value.customFont} · العودة للمدمج",false){SubtitleAppearanceStore.update(SubtitleAppearanceStore.value.copy(customFont=""))}
+                            Choice("إخفاء وصف الأصوات SDH",SubtitleAppearanceStore.value.removeSdh){SubtitleAppearanceStore.update(SubtitleAppearanceStore.value.copy(removeSdh=!SubtitleAppearanceStore.value.removeSdh))}
+                            SubtitleAppearancePanel(
                             style = SubtitleAppearanceStore.value,
                             onChange = { SubtitleAppearanceStore.update(it) },
                             onReset = { SubtitleAppearanceStore.reset() },
                         )
+                        }
                         Panel.Effects -> PlayerEffectsPanel(effects, { effects = it }, { effects = PlayerEffects() })
                         Panel.Tools -> {
+                            Choice("مرافق أورا والترجمة · Gemini",false){companion=true;panel=Panel.None}
+                            Choice("البث إلى شاشة · DLNA",false){casting=true;panel=Panel.None}
+                            Choice("إعادة الاتصال بالمصدر",false){reconnects=0;view?.load(request.source,state.positionMs,request.headers);panel=Panel.None}
+                            if(onPrevious!=null)Choice("الملف السابق",false){saveProgress();onPrevious()}
+                            if(onNext!=null)Choice("الملف التالي",false){saveProgress();onNext()}
                             Choice("شكل الترجمة", false) { panel = Panel.Appearance }
                             Choice("الصورة ووضوح الحوار والصوت الليلي", false) { panel = Panel.Effects }
                             Choice("الفصول (${state.chapters.size})", false) { panel = Panel.Chapters }
@@ -572,6 +656,8 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
                                 Choice("بعد $minutes دقيقة", false) { sleepDeadline = SystemClock.elapsedRealtime() + minutes * 60_000L; flash("تم ضبط مؤقت الإيقاف") }
                             }
                             if (sleepDeadline != null) Choice("إلغاء المؤقت", false) { sleepDeadline = null }
+                            Choice("نوم عند نهاية الملف",sleepAtEnd){sleepAtEnd=!sleepAtEnd}
+                            Choice("إعادة تكبير الصورة",zoom==1f){zoom=1f;panX=0f;panY=0f;view?.setZoom(1f,0f,0f)}
                             Choice("لقطة للشاشة ومشاركتها", false) {
                                 panel = Panel.None
                                 val target = File(context.cacheDir, "screenshots").apply { mkdirs() }
@@ -594,7 +680,8 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
                         Panel.Bookmarks -> {
                             if (bookmarks.isEmpty()) Text("أضف علامة من أدوات المشغّل للعودة إلى المشهد لاحقًا.", color = Color.White)
                             bookmarks.forEach { position -> Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.weight(1f)) { Choice(formatDuration(position), false) { seekTo(position); panel = Panel.None } }
+                                Box(Modifier.weight(1f)) { Choice(formatDuration(position)+PlaybackBookmarks.note(context,request.source,position).let{if(it.isBlank())""else" · $it"}, false) { seekTo(position); panel = Panel.None } }
+                                androidx.compose.material3.TextButton(onClick={editingBookmark=position}){Text("ملاحظة")}
                                 androidx.compose.material3.TextButton(onClick = { bookmarks = PlaybackBookmarks.remove(context, request.source, position) }) { Text("حذف") }
                             } }
                         }

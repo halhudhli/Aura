@@ -32,6 +32,8 @@ data class SubtitleAppearance(
     val shadowStrength: Int = 1,
     val position: Int = 95,
     val font: SubtitleFont = SubtitleFont.Almarai,
+    val customFont:String = "",
+    val removeSdh:Boolean = false,
 ) {
     fun normalized(): SubtitleAppearance = copy(
         opacityPercent = opacityPercent.coerceIn(20, 100),
@@ -61,6 +63,8 @@ data class SubtitleAppearance(
             "shadow_strength" to style.shadowStrength.toString(),
             "position" to style.position.toString(),
             "font" to style.font.name,
+            "custom_font" to style.customFont,
+            "remove_sdh" to style.removeSdh.toString(),
         )
     }
 
@@ -81,6 +85,8 @@ data class SubtitleAppearance(
                 shadowStrength = number("shadow_strength", defaults.shadowStrength),
                 position = number("position", defaults.position),
                 font = SubtitleFont.entries.firstOrNull { it.name == value("font") } ?: defaults.font,
+                customFont=value("custom_font").orEmpty().take(150),
+                removeSdh=flag("remove_sdh",false),
             ).normalized()
         }
     }
