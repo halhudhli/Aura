@@ -34,7 +34,11 @@ data class LibraryItem(
 object MediaCatalog {
     suspend fun load(context: Context, access: LibraryAccess): List<LibraryItem> = withContext(Dispatchers.IO) {
         val items = mutableListOf<LibraryItem>()
-        if(access.videos) items += Media.loadVideos(context).map { LibraryItem(it.uri.toString(),it.title,MediaType.Video,it.durationMs,it.sizeBytes,it.folder,it.dateAdded,width=it.width,height=it.height) }
+        if(access.videos) {
+            val videos=Media.loadVideos(context)
+            Prefs.migrateSources(videos.associate{it.path to it.uri.toString()})
+            items += videos.map { LibraryItem(it.uri.toString(),it.title,MediaType.Video,it.durationMs,it.sizeBytes,it.folder,it.dateAdded,width=it.width,height=it.height) }
+        }
         if(access.audio) {
             val collection=MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
             val columns=arrayOf(MediaStore.Audio.Media._ID,MediaStore.Audio.Media.DISPLAY_NAME,MediaStore.Audio.Media.DURATION,MediaStore.Audio.Media.SIZE,MediaStore.Audio.Media.DATA,MediaStore.Audio.Media.DATE_ADDED,MediaStore.Audio.Media.ARTIST,MediaStore.Audio.Media.ALBUM)

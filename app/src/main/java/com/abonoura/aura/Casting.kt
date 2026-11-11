@@ -123,16 +123,19 @@ private class LocalCastServer(private val context:Context,private val source:Str
         if(first.getOrNull(1)!="/$token"||first[0] !in setOf("GET","HEAD"))return
         var range:String?=null;var count=0
         while(count++<64){val line=reader.readLine() ?: break;if(line.isEmpty())break;if(line.startsWith("Range:",true))range=line.substringAfter(':').trim()}
-        val match=range?.let{Regex("bytes=(\\d+)-(\\d*)").matchEntire(it)}
-        val offset=match?.groupValues?.get(1)?.toLongOrNull() ?: 0
-        val (input,size)=open(offset)
+        val initial=HttpRanges.initialOffset(range)
+        var opened=open(initial)
+        val resolved=HttpRanges.resolve(range,opened.second)
+        if(resolved==null){opened.first.close();c.getOutputStream().write("HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */${opened.second}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray());return}
+        if(resolved.start!=initial){opened.first.close();opened=open(resolved.start)}
+        val (input,size)=opened;val offset=resolved.start
         input.use{stream->
-            val end=match?.groupValues?.get(2)?.toLongOrNull()?.coerceAtMost(size-1) ?: size-1
-            val length=(end-offset+1).coerceAtLeast(0)
+            val end=resolved.end
+            val length=resolved.length
             val output=c.getOutputStream();val type=java.net.URLConnection.guessContentTypeFromName(source) ?: "video/mp4"
-            output.write((if(match==null)"HTTP/1.1 200 OK\r\n"else"HTTP/1.1 206 Partial Content\r\n").toByteArray())
+            output.write((if(!resolved.partial)"HTTP/1.1 200 OK\r\n"else"HTTP/1.1 206 Partial Content\r\n").toByteArray())
             output.write("Content-Type: $type\r\nContent-Length: $length\r\nAccept-Ranges: bytes\r\nConnection: close\r\n".toByteArray())
-            if(match!=null)output.write("Content-Range: bytes $offset-$end/$size\r\n".toByteArray())
+            if(resolved.partial)output.write("Content-Range: bytes $offset-$end/$size\r\n".toByteArray())
             output.write("\r\n".toByteArray())
             if(first[0]=="GET"){val buffer=ByteArray(65536);var left=length;while(left>0){val n=stream.read(buffer,0,minOf(left,buffer.size.toLong()).toInt());if(n<0)break;output.write(buffer,0,n);left-=n}}
         }

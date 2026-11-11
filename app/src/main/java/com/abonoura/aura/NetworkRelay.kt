@@ -34,14 +34,17 @@ object NetworkRelay {
             var range:String?=null
             var headers=0
             while(headers++<64){val line=reader.readLine() ?: break;if(line.isEmpty())break;if(line.length>8192)return;if(line.startsWith("Range:",true))range=line.substringAfter(':').trim()}
-            val requested=range?.let{Regex("bytes=(\\d+)-(\\d*)").matchEntire(it)}
-            val offset=requested?.groupValues?.get(1)?.toLongOrNull() ?: 0
-            val opened=NetworkSources.open(context,sources.getValue(token),offset)
+            val initial=HttpRanges.initialOffset(range)
+            var opened=NetworkSources.open(context,sources.getValue(token),initial)
+            val requested=HttpRanges.resolve(range,opened.length)
+            if(requested==null){opened.stream.close();output.write("HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */${opened.length}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n".toByteArray());return}
+            if(requested.start!=initial){opened.stream.close();opened=NetworkSources.open(context,sources.getValue(token),requested.start)}
+            val offset=requested.start
             opened.stream.use{input->
                 if(offset>=opened.length && opened.length>0){output.write("HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */${opened.length}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n".toByteArray());return}
-                val end=requested?.groupValues?.get(2)?.toLongOrNull()?.coerceAtMost(opened.length-1) ?: (opened.length-1)
-                val length=(end-offset+1).coerceAtLeast(0)
-                val headers=buildString{append(if(requested!=null)"HTTP/1.1 206 Partial Content\r\n"else"HTTP/1.1 200 OK\r\n");append("Content-Type: application/octet-stream\r\nAccept-Ranges: bytes\r\nContent-Length: $length\r\nConnection: close\r\n");if(requested!=null)append("Content-Range: bytes $offset-$end/${opened.length}\r\n");append("\r\n")}
+                val end=requested.end
+                val length=requested.length
+                val headers=buildString{append(if(requested.partial)"HTTP/1.1 206 Partial Content\r\n"else"HTTP/1.1 200 OK\r\n");append("Content-Type: application/octet-stream\r\nAccept-Ranges: bytes\r\nContent-Length: $length\r\nConnection: close\r\n");if(requested.partial)append("Content-Range: bytes $offset-$end/${opened.length}\r\n");append("\r\n")}
                 output.write(headers.toByteArray())
                 if(method=="GET") {val buffer=ByteArray(64*1024);var remaining=length;while(remaining>0){val read=input.read(buffer,0,minOf(buffer.size.toLong(),remaining).toInt());if(read<0)break;output.write(buffer,0,read);remaining-=read}}
             }

@@ -9,6 +9,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.SystemBarStyle
+import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.withResumed
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
@@ -19,12 +24,17 @@ class MainActivity : ComponentActivity() {
     private var inPip by mutableStateOf(false)
     private var videoIsPlaying=false
     override fun onCreate(savedInstanceState:Bundle?) {
-        enableEdgeToEdge();super.onCreate(savedInstanceState)
+        enableEdgeToEdge(statusBarStyle=SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),navigationBarStyle=SystemBarStyle.dark(android.graphics.Color.TRANSPARENT));super.onCreate(savedInstanceState)
+        if(android.os.Build.VERSION.SDK_INT>=29)window.isNavigationBarContrastEnforced=false
         Prefs.init(this);SubtitleAppearanceStore.init(this)
-        incoming=IncomingMediaReader.read(intent,contentResolver)
+        receive(intent)
         setContent {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                 AuraTheme(motionEnabled=playing==null) {
+                    SideEffect {WindowCompat.getInsetsController(window,window.decorView).let{bars->
+                        bars.isAppearanceLightStatusBars=Prefs.look==AuraLook.Light
+                        bars.isAppearanceLightNavigationBars=Prefs.look==AuraLook.Light
+                    }}
                     MediaCenterScreen(incoming,onConsumed={incoming=emptyList()},onPlay={request ->
                         AudioPlayback.controller?.pause();playing=request
                     })
@@ -42,7 +52,19 @@ class MainActivity : ComponentActivity() {
     }
     override fun onNewIntent(intent:Intent) {
         super.onNewIntent(intent);setIntent(intent)
-        playing=null;incoming=IncomingMediaReader.read(intent,contentResolver)
+        receive(intent)
+    }
+    private fun receive(intent:Intent?) {
+        val received=IncomingMediaReader.read(intent,contentResolver)
+        android.util.Log.d("AuraIntent","Received ${intent?.action} ${intent?.type}; items=${received.map{it.type}}")
+        if(received.isEmpty())return
+        playing=null;incoming=emptyList()
+        val requests=received.map{PlayRequest(it.uri.toString(),it.title,it.type,it.startMs,it.headers)}
+        when {
+            received.all{it.type==MediaType.Audio}->lifecycleScope.launch{lifecycle.withResumed{AudioPlayback.play(this@MainActivity,requests)}}
+            received.first().type==MediaType.Video->{AudioPlayback.controller?.pause();playing=requests.first().copy(queue=requests.map{QueueItem(it.source,it.title,it.headers)})}
+            else->incoming=received
+        }
     }
     private fun enterPip() { runCatching { enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(Rational(16,9)).build()) } }
     override fun onUserLeaveHint() {

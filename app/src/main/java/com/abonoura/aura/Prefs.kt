@@ -136,4 +136,14 @@ object Prefs {
         sp.edit().remove("history").apply()
         historyVersion++
     }
+    /** Preserve the original library's raw-path history/favourites when moving to durable URIs. */
+    @Synchronized fun migrateSources(mapping:Map<String,String>) {
+        val oldHistory=history();val oldFavorites=favorites()
+        val updatedHistory=oldHistory.map{it.copy(source=mapping[it.source] ?: it.source)}.distinctBy{it.source}
+        val updatedFavorites=oldFavorites.map{mapping[it] ?: it}.toSet()
+        if(updatedHistory==oldHistory && updatedFavorites==oldFavorites)return
+        sp.edit().putString("history",updatedHistory.joinToString("\n"){listOf(it.source,it.title,it.positionMs,it.durationMs,it.time).joinToString(SEP)})
+            .putStringSet("favorites",updatedFavorites).apply()
+        historyVersion++;favoritesVersion++
+    }
 }

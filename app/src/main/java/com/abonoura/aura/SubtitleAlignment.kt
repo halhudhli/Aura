@@ -57,11 +57,12 @@ object SubtitleAligner {
         var best=candidates.maxByOrNull{it.score} ?: return null
         // Refine drift and offset together around the strongest coarse candidate.
         repeat(3) { pass ->
-            val step=if(pass==0).0005 else if(pass==1).0001 else .00002
+            val step=if(pass==0).001 else if(pass==1).0001 else .00002
             val origin=best
+            val pivot=source[source.size/2].startMs
             for(ds in -5..5)for(dt in -4..4) {
                 if(cancelled())throw java.util.concurrent.CancellationException()
-                val candidate=score(origin.scale+ds*step,origin.offset+dt*(if(pass==0)100 else 25))
+                val candidate=score(origin.scale+ds*step,origin.offset-(ds*step*pivot).toLong()+dt*(if(pass==0)100 else 25))
                 if(candidate.score>best.score)best=candidate
             }
         }

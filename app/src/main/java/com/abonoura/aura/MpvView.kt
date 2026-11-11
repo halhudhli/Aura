@@ -195,6 +195,7 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
     /** Reads the current state on the mpv thread and hands it to [onState] (also on that thread). */
     fun readState(onState: (PlaybackState) -> Unit) = post {
         val nodes = runCatching { getPropertyNode("track-list")?.asArray()?.toList() }.getOrNull().orEmpty()
+        val primarySubtitle=getPropertyInt("sid")
         fun tracks(type: String): List<Track> = nodes
             .filter { it.text("type") == type }
             .mapIndexedNotNull { index, node ->
@@ -205,7 +206,7 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
                 val label = listOfNotNull(title, language?.uppercase(), codec?.uppercase().takeIf { title == null })
                     .joinToString(" · ")
                     .ifBlank { "${index + 1}" }
-                Track(id, label, node.flag("selected") ?: false, node.text("external-filename"))
+                Track(id, label, if(type=="sub")id==primarySubtitle else node.flag("selected") ?: false, node.text("external-filename"))
             }
         val chapters = runCatching { getPropertyNode("chapter-list")?.asArray()?.toList() }.getOrNull().orEmpty()
             .mapIndexedNotNull { index, node ->

@@ -20,5 +20,10 @@ class SubtitleAlignmentTest {
         assertNull(SubtitleAligner.align(cues.take(3),cues))
         assertTrue(runCatching{SubtitleAligner.align(cues,cues){true}}.exceptionOrNull() is java.util.concurrent.CancellationException)
     }
+    @Test fun refinesNonStandardDrift() {
+        val ref=cues.map{it.copy(startMs=(it.startMs*1.003+2700).toLong(),endMs=(it.endMs*1.003+2700).toLong())}
+        val fit=SubtitleAligner.align(cues,ref)!!
+        assertEquals(1.003,fit.scale,.0004);assertEquals(2700.0,fit.offsetMs.toDouble(),150.0)
+    }
     @Test fun srtCanBeReadBack() {assertEquals(cues,SubtitleCues.parse(SubtitleAligner.srt(cues)))}
 }
