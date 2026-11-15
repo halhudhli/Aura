@@ -97,8 +97,8 @@ fun LibraryScreen(
                 )
                 TopIcon(Icons.Rounded.Close, "إغلاق البحث") { searching = false; query = "" }
             } else {
-                Image(painterResource(R.drawable.aura_logo), contentDescription = null, modifier = Modifier.size(34.dp).clip(RoundedCornerShape(9.dp)))
-                Text("Aura", color = colors.text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 10.dp).weight(1f))
+                Image(painterResource(R.drawable.aura_logo), contentDescription = null, modifier = Modifier.size(46.dp))
+                Text("AURA", color = colors.text, fontSize = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp, modifier = Modifier.padding(start = 8.dp).weight(1f))
                 TopIcon(Icons.Rounded.Search, "بحث") { searching = true }
                 TopIcon(Icons.Rounded.Link, "فتح رابط") { linkDialog = true }
                 TopIcon(Icons.Rounded.Settings, "الإعدادات", onSettings)

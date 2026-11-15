@@ -22,6 +22,16 @@ object Prefs {
         private set
     var backgroundDim by mutableStateOf(20)
         private set
+    var backgroundBlur by mutableStateOf(8)
+        private set
+    var reduceMotion by mutableStateOf(false)
+        private set
+    var backgroundFit by mutableStateOf(false)
+        private set
+    var glassOpacity by mutableStateOf(62)
+        private set
+    var backgroundKind by mutableStateOf("image")
+        private set
     var resume by mutableStateOf(true)
         private set
     var gestures by mutableStateOf(true)
@@ -36,6 +46,8 @@ object Prefs {
         private set
     var subtitleScale by mutableStateOf(1f)
         private set
+    var subtitleLanguage by mutableStateOf("ar")
+        private set
     var historyVersion by mutableStateOf(0)
         private set
 
@@ -45,6 +57,11 @@ object Prefs {
         look = AuraLook.entries.firstOrNull { it.name == sp.getString("look", null) } ?: AuraLook.Glass
         backgroundFile = sp.getString("bg_file", null)
         backgroundDim = sp.getInt("bg_dim", 20)
+        backgroundBlur = sp.getInt("bg_blur", 8).coerceIn(0, 30)
+        reduceMotion = sp.getBoolean("reduce_motion", false)
+        backgroundFit = sp.getBoolean("bg_fit", false)
+        glassOpacity = sp.getInt("glass_opacity", 62).coerceIn(25, 95)
+        backgroundKind = sp.getString("bg_kind", "image").orEmpty()
         resume = sp.getBoolean("resume", true)
         gestures = sp.getBoolean("gestures", true)
         hardwareDecoding = sp.getBoolean("hwdec", true)
@@ -52,10 +69,20 @@ object Prefs {
         seekSeconds = sp.getInt("seek_seconds", 10)
         holdSpeed = sp.getFloat("hold_speed", 2f)
         subtitleScale = sp.getFloat("sub_scale", 1f)
+        subtitleLanguage = sp.getString("sub_language", "ar").orEmpty()
+            .takeIf { code -> subtitleLanguages.any { it.code == code } } ?: "ar"
     }
 
     fun putLook(value: AuraLook) { look = value; sp.edit().putString("look", value.name).apply() }
     fun putBackground(file: String?) { backgroundFile = file; sp.edit().putString("bg_file", file).apply() }
+    fun putWallpaper(file: String?, kind: String = "image") {
+        backgroundFile=file; backgroundKind=kind
+        sp.edit().putString("bg_file",file).putString("bg_kind",kind).apply()
+    }
+    fun putBlur(value: Int) { backgroundBlur=value.coerceIn(0,30);sp.edit().putInt("bg_blur",backgroundBlur).apply() }
+    fun putReduceMotion(value: Boolean) { reduceMotion=value;sp.edit().putBoolean("reduce_motion",value).apply() }
+    fun putBackgroundFit(value: Boolean) { backgroundFit=value;sp.edit().putBoolean("bg_fit",value).apply() }
+    fun putGlassOpacity(value: Int) { glassOpacity=value.coerceIn(25,95);sp.edit().putInt("glass_opacity",glassOpacity).apply() }
     fun putDim(value: Int) { backgroundDim = value.coerceIn(0, 80); sp.edit().putInt("bg_dim", backgroundDim).apply() }
     fun putResume(value: Boolean) { resume = value; sp.edit().putBoolean("resume", value).apply() }
     fun putGestures(value: Boolean) { gestures = value; sp.edit().putBoolean("gestures", value).apply() }
@@ -64,6 +91,7 @@ object Prefs {
     fun putSeek(value: Int) { seekSeconds = value; sp.edit().putInt("seek_seconds", value).apply() }
     fun putHold(value: Float) { holdSpeed = value; sp.edit().putFloat("hold_speed", value).apply() }
     fun putSubScale(value: Float) { subtitleScale = value.coerceIn(0.5f, 2.5f); sp.edit().putFloat("sub_scale", subtitleScale).apply() }
+    fun putSubtitleLanguage(value: String) { subtitleLanguage = value; sp.edit().putString("sub_language", value).apply() }
 
     // ---- where each video stopped, and the watch history (newest first, 60 entries at most)
 
@@ -107,5 +135,15 @@ object Prefs {
     fun clearHistory() {
         sp.edit().remove("history").apply()
         historyVersion++
+    }
+    /** Preserve the original library's raw-path history/favourites when moving to durable URIs. */
+    @Synchronized fun migrateSources(mapping:Map<String,String>) {
+        val oldHistory=history();val oldFavorites=favorites()
+        val updatedHistory=oldHistory.map{it.copy(source=mapping[it.source] ?: it.source)}.distinctBy{it.source}
+        val updatedFavorites=oldFavorites.map{mapping[it] ?: it}.toSet()
+        if(updatedHistory==oldHistory && updatedFavorites==oldFavorites)return
+        sp.edit().putString("history",updatedHistory.joinToString("\n"){listOf(it.source,it.title,it.positionMs,it.durationMs,it.time).joinToString(SEP)})
+            .putStringSet("favorites",updatedFavorites).apply()
+        historyVersion++;favoritesVersion++
     }
 }

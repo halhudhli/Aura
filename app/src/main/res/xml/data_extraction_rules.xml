@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup><exclude domain="sharedpref" path="private_settings.xml" /><exclude domain="sharedpref" path="audio_queue.xml" /><exclude domain="sharedpref" path="aura_catalog.xml" /><exclude domain="sharedpref" path="aura.xml" /><exclude domain="file" path="playlists/" /></cloud-backup>
+    <device-transfer><exclude domain="sharedpref" path="private_settings.xml" /><exclude domain="sharedpref" path="audio_queue.xml" /><exclude domain="sharedpref" path="aura_catalog.xml" /><exclude domain="sharedpref" path="aura.xml" /><exclude domain="file" path="playlists/" /></device-transfer>
+</data-extraction-rules>

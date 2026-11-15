@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,10 +27,15 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.compose.material3.Slider
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -38,15 +45,19 @@ import java.io.File
 fun SettingsScreen(versionName: String, onBack: () -> Unit) {
     val colors = LocalAura.current
     val context = LocalContext.current
-    val picturePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+    val scope=rememberCoroutineScope()
+    var wallpaperBusy by remember { mutableStateOf(false) }
+    var wallpaperError by remember { mutableStateOf<String?>(null) }
+    var geminiDialog by remember{mutableStateOf(false)}
+    val picturePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
-        runCatching {
-            val name = "background-${System.currentTimeMillis()}.img"
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                File(context.filesDir, name).outputStream().use { input.copyTo(it) }
-            }
-            Prefs.backgroundFile?.let { old -> File(context.filesDir, old).delete() }
-            Prefs.putBackground(name)
+        scope.launch {
+            wallpaperBusy=true;wallpaperError=null
+            runCatching { WallpaperFiles.import(context,uri) }.onSuccess { result ->
+                val old=Prefs.backgroundFile;Prefs.putWallpaper(result.file,result.kind)
+                old?.let {File(context.filesDir,it).delete()}
+            }.onFailure {wallpaperError=it.message ?: "تعذّر قراءة الخلفية"}
+            wallpaperBusy=false
         }
     }
 
@@ -64,17 +75,22 @@ fun SettingsScreen(versionName: String, onBack: () -> Unit) {
                     AuraLook.entries.forEach { look -> Chip(look.label, look == Prefs.look) { Prefs.putLook(look) } }
                 }
                 if (Prefs.look == AuraLook.Glass) {
-                    Action("صورة الخلفية", if (Prefs.backgroundFile == null) "الافتراضية · يُضغط لاختيار صورة من المعرض" else "صورة من المعرض · يُضغط للتغيير") {
-                        picturePicker.launch("image/*")
+                    Action("خلفية الصفحة", if(wallpaperBusy)"جارٍ تجهيز الخلفية…" else if (Prefs.backgroundFile == null) "الجبل والشفق المتحرك · اختر خلفيتك من الجهاز" else "خلفية مخصصة · صورة أو GIF أو WebP متحركة أو فيديو صامت") {
+                        if(!wallpaperBusy)picturePicker.launch(arrayOf("image/*","video/*"))
                     }
+                    wallpaperError?.let {Text(it,color=androidx.compose.material3.MaterialTheme.colorScheme.error)}
+                    Toggle("تقليل الحركة", "يوقف حركة الجبل والخلفيات المتحركة", Prefs.reduceMotion) {Prefs.putReduceMotion(it)}
+                    Toggle("إظهار الخلفية كاملة", "احتواء الصورة بدل اقتصاص أطرافها", Prefs.backgroundFit) {Prefs.putBackgroundFit(it)}
+                    Text("تعتيم الخلفية · ${Prefs.backgroundDim}%",color=colors.text)
+                    Slider(Prefs.backgroundDim.toFloat(),{Prefs.putDim(it.toInt())},valueRange=0f..80f)
+                    Text("ضبابية الخلفية · ${Prefs.backgroundBlur}",color=colors.text)
+                    Slider(Prefs.backgroundBlur.toFloat(),{Prefs.putBlur(it.toInt())},valueRange=0f..30f)
+                    Text("عتامة البطاقات الزجاجية · ${Prefs.glassOpacity}%",color=colors.text)
+                    Slider(Prefs.glassOpacity.toFloat(),{Prefs.putGlassOpacity(it.toInt())},valueRange=25f..95f)
                     if (Prefs.backgroundFile != null) {
                         Action("إزالة صورة الخلفية", "العودة إلى الخلفية الافتراضية") {
                             Prefs.backgroundFile?.let { old -> File(context.filesDir, old).delete() }
-                            Prefs.putBackground(null)
-                        }
-                        Action("تعتيم الخلفية", "${Prefs.backgroundDim}% · يُضغط للتغيير") {
-                            val steps = listOf(0, 10, 20, 30, 45, 60, 80)
-                            Prefs.putDim(steps.firstOrNull { it > Prefs.backgroundDim } ?: steps.first())
+                            Prefs.putWallpaper(null)
                         }
                     }
                 }
@@ -95,16 +111,33 @@ fun SettingsScreen(versionName: String, onBack: () -> Unit) {
                 }
             }
 
+            Section("الخدمات الاختيارية") {
+                Action("Gemini · الترجمة والمرافق", "إعداد مفتاحك ونموذجك، ثم الوصول للمرافق من أدوات المشغّل") {geminiDialog=true}
+            }
             Section("السجل") {
                 Action("مسح سجل المشاهدة", "تُحذف مواضع التوقف المحفوظة لكل الفيديوهات") { Prefs.clearHistory() }
             }
 
             Section("حول التطبيق") {
+                Image(
+                    painterResource(R.drawable.aura_wordmark), contentDescription = "AURA · أورا",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxWidth().height(106.dp).clip(RoundedCornerShape(12.dp)).background(androidx.compose.ui.graphics.Color(0xFF080B15)),
+                )
                 Text("Aura · الإصدار $versionName", color = colors.text, fontSize = 14.sp)
                 Text("مشغّل فيديو بلا إعلانات ولا تتبّع. بواسطة Abonoura.", color = colors.subText, fontSize = 13.sp)
                 Text("يعتمد على مكتبة mpv مفتوحة المصدر لتشغيل الفيديو، وخط Almarai للترجمة.", color = colors.subText, fontSize = 12.sp)
             }
         }
+    }
+    if(geminiDialog) {
+        var apiKey by remember {mutableStateOf(PrivateSettings.get(context,"gemini_key"))}
+        var model by remember {mutableStateOf(PrivateSettings.get(context,"gemini_model").ifBlank{"gemini-2.5-flash"})}
+        androidx.compose.material3.AlertDialog(onDismissRequest={geminiDialog=false},title={Text("إعداد Gemini")},text={Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
+            Text("الخدمة اختيارية. يُحفظ المفتاح مشفّرًا على الجهاز، ولا يُرسل إلا إلى Google عند استخدامك للمرافق أو الترجمة.")
+            androidx.compose.material3.OutlinedTextField(apiKey,{apiKey=it},label={Text("API Key")},singleLine=true,visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation())
+            androidx.compose.material3.OutlinedTextField(model,{model=it},label={Text("اسم النموذج")},singleLine=true)
+        }},confirmButton={androidx.compose.material3.TextButton(onClick={PrivateSettings.put(context,"gemini_key",apiKey.trim());PrivateSettings.put(context,"gemini_model",model.trim());geminiDialog=false}){Text("حفظ")}},dismissButton={androidx.compose.material3.TextButton(onClick={geminiDialog=false}){Text("إلغاء")}})
     }
 }
 
