@@ -177,6 +177,54 @@ class AuraMpvView(context: Context) : BaseMPVView(context, null) {
             value.audioMode.mpvFilter?.let { command("af", "add", "@aura_audio:$it") }
             appliedAudioMode = value.audioMode
         }
+        // Sound: headphone surround and levelling, each its own labelled filter.
+        if (value.levelling != appliedLevelling) {
+            runCatching { command("af", "remove", "@aura_level") }
+            if (value.levelling) runCatching { command("af", "add", "@aura_level:lavfi=[dynaudnorm=f=500:g=31:p=0.9:m=8]") }
+            appliedLevelling = value.levelling
+        }
+        if (value.spatial != appliedSpatial) {
+            runCatching { command("af", "remove", "@aura_wide") }
+            runCatching { command("af", "remove", "@aura_cross") }
+            if (value.spatial) {
+                runCatching { command("af", "add", "@aura_wide:lavfi=[extrastereo=m=1.35]") }
+                runCatching { command("af", "add", "@aura_cross:lavfi=[crossfeed=strength=0.3:range=0.6]") }
+            }
+            appliedSpatial = value.spatial
+        }
+        // Picture: smooth motion, deband, sharper scaling or Anime4K.
+        runCatching {
+            if (value.smoothMotion) {
+                setPropertyString("video-sync", "display-resample"); setPropertyString("tscale", "oversample"); setPropertyString("interpolation", "yes")
+            } else {
+                setPropertyString("interpolation", "no"); setPropertyString("video-sync", "audio")
+            }
+        }
+        runCatching { setPropertyString("deband", if (value.deband) "yes" else "no") }
+        runCatching {
+            val chain = when (value.upscale) {
+                2 -> listOf("Anime4K_Clamp_Highlights.glsl", "Anime4K_Restore_CNN_S.glsl", "Anime4K_Upscale_CNN_x2_S.glsl", "Anime4K_AutoDownscalePre_x2.glsl")
+                3 -> listOf("Anime4K_Clamp_Highlights.glsl", "Anime4K_Restore_CNN_M.glsl", "Anime4K_Upscale_CNN_x2_M.glsl", "Anime4K_AutoDownscalePre_x2.glsl")
+                else -> emptyList()
+            }
+            setPropertyString("scale", if (value.upscale == 1) "ewa_lanczossharp" else "bilinear")
+            setPropertyString("glsl-shaders", shaderPaths(chain).joinToString(":"))
+        }
+    }
+
+    private var appliedLevelling = false
+    private var appliedSpatial = false
+
+    /** Copies the bundled Anime4K shaders (MIT) out of the APK once. */
+    private fun shaderPaths(names: List<String>): List<String> {
+        val dir = File(context.filesDir, "shaders").apply { mkdirs() }
+        return names.mapNotNull { name ->
+            val file = File(dir, name)
+            if (!file.exists() || file.length() == 0L) {
+                runCatching { context.assets.open("shaders/$name").use { i -> file.outputStream().use { i.copyTo(it) } } }
+            }
+            file.takeIf { it.exists() && it.length() > 0L }?.absolutePath
+        }
     }
 
     fun setRepeat(startMs: Long?, endMs: Long?) = post {

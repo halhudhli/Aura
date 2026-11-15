@@ -284,6 +284,37 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
     LaunchedEffect(state.paused, state.subtitleTracks.firstOrNull { it.selected }?.id, state.audioTracks.firstOrNull { it.selected }?.id, audioDelay) { resetCapture() }
     LaunchedEffect(view, SubtitleAppearanceStore.value) { view?.setSubtitleAppearance(SubtitleAppearanceStore.value) }
     LaunchedEffect(view, effects) { view?.setEffects(effects);PlayerPreferences.save(context,effects) }
+    // «مطابقة سرعة الشاشة مع الفيلم»: a display mode whose refresh rate is a whole multiple of the film's.
+    val fpsKey = if (effects.matchRefresh) (state.fps * 1000).roundToInt() else 0
+    DisposableEffect(fpsKey) {
+        val window = activity?.window
+        if (window != null && fpsKey > 10_000 && android.os.Build.VERSION.SDK_INT >= 23) runCatching {
+            val fps = fpsKey / 1000f
+            @Suppress("DEPRECATION")
+            val display = if (android.os.Build.VERSION.SDK_INT >= 30) activity.display else activity.windowManager.defaultDisplay
+            val current = display?.mode
+            if (display != null && current != null) {
+                val best = display.supportedModes
+                    .filter { it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight }
+                    .filter { m -> val n = (m.refreshRate / fps).roundToInt(); n >= 1 && abs(m.refreshRate - n * fps) / m.refreshRate < 0.012f }
+                    .maxByOrNull { it.refreshRate }
+                if (best != null) window.attributes = window.attributes.apply { preferredDisplayModeId = best.modeId }
+            }
+        }
+        onDispose { runCatching { window?.attributes = window?.attributes?.apply { preferredDisplayModeId = 0 } } }
+    }
+    // Audio delay remembered per headset (Bluetooth or wired); "" is the device speaker.
+    val outputDevice = remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        while (true) {
+            outputDevice.value = currentAudioOutput(context)
+            delay(3_000L)
+        }
+    }
+    LaunchedEffect(view, outputDevice.value) {
+        audioDelay = PlayerPreferences.audioDelay(context, outputDevice.value)
+        view?.setAudioDelay(audioDelay)
+    }
     LaunchedEffect(state.ended) {if(state.ended) {if(sleepAtEnd)view?.setPaused(true)else if(state.durationMs>0){saveProgress();onNext?.invoke()}}}
     DisposableEffect(request.source) {onDispose{saveProgress()}}
     LaunchedEffect(sleepDeadline) {
@@ -607,8 +638,8 @@ fun PlayerScreen(request: PlayRequest, inPip: Boolean, onEnterPip: () -> Unit, o
                         Panel.Audio -> {
                             state.audioTracks.forEach { track -> Choice(track.label, track.selected) { view?.selectAudio(track.id) } }
                             Stepper("توقيت الصوت", delayLabel(audioDelay),
-                                onMinus = { audioDelay -= 50; view?.setAudioDelay(audioDelay) },
-                                onPlus = { audioDelay += 50; view?.setAudioDelay(audioDelay) })
+                                onMinus = { audioDelay -= 50; view?.setAudioDelay(audioDelay); PlayerPreferences.saveAudioDelay(context, outputDevice.value, audioDelay) },
+                                onPlus = { audioDelay += 50; view?.setAudioDelay(audioDelay); PlayerPreferences.saveAudioDelay(context, outputDevice.value, audioDelay) })
                         }
                         Panel.Speed -> listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f).forEach { speed ->
                             Choice("${speed}×", abs(state.speed - speed) < 0.01f) { view?.setSpeed(speed) }
@@ -852,3 +883,13 @@ private fun StepButton(label: String, onClick: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) { Text(label, color = Color.White, fontSize = 20.sp) }
 }
+
+
+/** Name of the headphones in use, or "" for the device speaker. */
+internal fun currentAudioOutput(context: Context): String = runCatching {
+    val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    val devices = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+    val bt = devices.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || (android.os.Build.VERSION.SDK_INT >= 31 && (it.type == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET || it.type == android.media.AudioDeviceInfo.TYPE_BLE_SPEAKER)) }
+    bt?.productName?.toString()?.trim()?.ifBlank { "bluetooth" }
+        ?: if (devices.any { it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES || it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET || it.type == android.media.AudioDeviceInfo.TYPE_USB_HEADSET }) "wired" else ""
+}.getOrDefault("")

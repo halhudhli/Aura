@@ -7,6 +7,14 @@ data class PlayerEffects(
     val saturation: Int = 0,
     val gamma: Int = 0,
     val audioMode: AudioMode = AudioMode.Normal,
+    // From Mawj's «تحسين الصورة والصوت».
+    /** 0 none, 1 sharp scaler, 2 Anime4K light, 3 Anime4K strong. */
+    val upscale: Int = 0,
+    val smoothMotion: Boolean = false,
+    val deband: Boolean = false,
+    val matchRefresh: Boolean = true,
+    val spatial: Boolean = false,
+    val levelling: Boolean = false,
 ) {
     fun normalized(): PlayerEffects = copy(
         brightness = brightness.coerceIn(-100, 100),

@@ -45,7 +45,21 @@ fun PlayerEffectsPanel(
         EffectsStepper("تشبّع الألوان", current.saturation) { onChange(current.copy(saturation = it)) }
         EffectsStepper("غاما", current.gamma) { onChange(current.copy(gamma = it)) }
 
+        Text("تحسين الصورة", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp))
+        EffectsToggle("مطابقة سرعة الشاشة مع الفيلم", "تُضبط سرعة تحديث الشاشة على مضاعف سرعة لقطات الفيلم لإزالة الرجفة.", current.matchRefresh) { onChange(current.copy(matchRefresh = it)) }
+        EffectsToggle("نعومة الحركة", "تُمزج اللقطات على سرعة الشاشة فتصبح المشاهد المتحركة أنعم. أقرب خيار لتقنية MEMC.", current.smoothMotion) { onChange(current.copy(smoothMotion = it)) }
+        EffectsToggle("إزالة التكتل", "تُنعَّم التدرجات المتكتلة في السماء والظلال.", current.deband) { onChange(current.copy(deband = it)) }
+        Text("تحسين الدقة", color = Color.White.copy(alpha = 0.75f), fontSize = 13.sp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("بدون", "حدّة", "أنمي خفيف", "أنمي قوي").forEachIndexed { i, label ->
+                EffectsOption(label, current.upscale == i, Modifier.weight(1f)) { onChange(current.copy(upscale = i)) }
+            }
+        }
+        if (current.upscale == 3) Text("المستوى القوي يحتاج جهازاً قوياً، وقد يسبب تقطيعاً في الأجهزة المتوسطة.", color = Color.White.copy(alpha = 0.65f), fontSize = 12.sp)
+
         Text("الصوت", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp))
+        EffectsToggle("صوت محيطي للسماعات", "يوسّع مساحة الصوت في السماعات فيبدو كأنه من حولك.", current.spatial) { onChange(current.copy(spatial = it)) }
+        EffectsToggle("توحيد مستوى الصوت", "يثبّت مستوى الصوت بين الملفات، فلا حاجة لتغييره مع كل ملف.", current.levelling) { onChange(current.copy(levelling = it)) }
         AudioMode.entries.forEach { mode ->
             EffectsOption(
                 label = mode.label,
@@ -106,4 +120,15 @@ private fun EffectsOption(label: String, selected: Boolean, modifier: Modifier =
             .background(Color.White.copy(alpha = if (selected) 0.14f else 0.06f))
             .clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 11.dp),
     )
+}
+
+@Composable
+private fun EffectsToggle(title: String, description: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(end = 8.dp)) {
+            Text(title, color = Color.White, fontSize = 14.sp)
+            Text(description, color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
+        }
+        androidx.compose.material3.Switch(checked = checked, onCheckedChange = onChange)
+    }
 }
